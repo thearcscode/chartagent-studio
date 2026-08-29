@@ -59,6 +59,9 @@ class DelegatingStore:
     def open(self, key: str) -> Any:
         return self._inner.open(key)
 
+    def delete(self, key: str) -> None:
+        self._inner.delete(key)
+
 
 class FakeUrlDescriber:
     """URL describes need the network (DuckDB httpfs), which tests never

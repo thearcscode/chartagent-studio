@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { BindResponse } from "./charts-api";
-import { BASE_SIZE, compileEnvelope, compiledPointCount } from "./compile";
+import { BASE_SIZE, compileEnvelope, compiledPointCount, compiledSeriesCount } from "./compile";
 import type { FlintGlobal } from "./flint";
 import { HOUSE_PALETTE } from "./palette";
 
@@ -51,6 +51,7 @@ function fakeFlint(dropRows = 0): FlintGlobal {
     assembleChartjs: () => ({}),
     assembleExcel: () => ({}),
     isExcelSupported: () => true,
+    generateOfficeJs: () => ({ code: "" }),
   };
 }
 
@@ -139,5 +140,14 @@ describe("compiledPointCount", () => {
     ).toBe(1);
     expect(compiledPointCount({})).toBeNull();
     expect(compiledPointCount(null)).toBeNull();
+  });
+});
+
+describe("compiledSeriesCount", () => {
+  it("counts ECharts series, then Plotly data, then Chart.js datasets", () => {
+    expect(compiledSeriesCount({ series: [{ type: "bar" }, { type: "line" }] })).toBe(2);
+    expect(compiledSeriesCount({ data: [{ type: "bar" }] })).toBe(1);
+    expect(compiledSeriesCount({ data: { datasets: [{}, {}] } })).toBe(2);
+    expect(compiledSeriesCount({})).toBe(0);
   });
 });

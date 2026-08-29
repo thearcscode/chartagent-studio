@@ -18,6 +18,9 @@ import { BackendPicker } from "../components/BackendPicker";
 import {
   ApiError,
   createSpec,
+  deleteSource,
+  deleteSpec,
+  downloadWorkbook,
   getSpec,
   listSources,
   previewBind,
@@ -31,7 +34,7 @@ import {
   type SpecOut,
 } from "../lib/charts-api";
 import { BACKEND_LABELS, type Backend } from "../lib/backends";
-import { compileEnvelope } from "../lib/compile";
+import { compileEnvelope, compiledSeriesCount } from "../lib/compile";
 import { excelGate } from "../lib/excel";
 import { loadFlint, type FlintGlobal } from "../lib/flint";
 import { drawChart, type DrawCleanup } from "../lib/renderers";
@@ -50,9 +53,14 @@ const EDITOR_PLACEHOLDER = `{
 type ChartArea =
   | { kind: "idle" }
   | { kind: "working" }
-  | { kind: "rendered"; pointCount: number }
+  | { kind: "rendered"; pointCount: number; seriesCount: number }
   | { kind: "amber"; reason: string }
   | { kind: "error"; reason: string };
+
+interface ExcelReady {
+  officeJs: string;
+  rows: Array<Record<string, unknown>>;
+}
 
 interface LastBind {
   content: Record<string, unknown>;
@@ -116,6 +124,7 @@ export function ChartPage() {
   const [backend, setBackend] = useState<Backend>("echarts");
   const [flint, setFlint] = useState<FlintGlobal | null>(null);
   const [area, setArea] = useState<ChartArea>({ kind: "idle" });
+  const [excelReady, setExcelReady] = useState<ExcelReady | null>(null);
   const [serverWarnings, setServerWarnings] = useState<AdvisoryOut[]>([]);
   const [compileWarnings, setCompileWarnings] = useState<
     Array<{ code: string; message: string }>
@@ -195,6 +204,7 @@ export function ChartPage() {
         // Refuse, name the drop, empty chart area — error for the honesty
         // guard, amber for realised capability.
         emptyChartArea();
+        setExcelReady(null);
         setLastBind(null);
         setArea({ kind: outcome.tone, reason: outcome.reason });
         return;
@@ -202,22 +212,51 @@ export function ChartPage() {
       setCompileWarnings(outcome.compileWarnings);
       setLastBind({ content: boundContent, envelope, backend: targetBackend });
       if (targetBackend === "excel") {
-        // Compiles, verified against the row count — but Excel draws in
-        // Excel, not here. Amber: won't render here.
         emptyChartArea();
-        setArea({
-          kind: "amber",
-          reason:
-            `This chart compiles for Excel — ${outcome.pointCount} points from ` +
-            `${envelope.row_count} rows, verified. Excel draws in Excel, not ` +
-            `in the browser; the .xlsx writer arrives with a later ticket.`,
-        });
+        if (outcome.pointCount === 0) {
+          // 353/365 accepted fixtures refuse on zero rows — empty chart
+          // area, not a fake workbook.
+          setExcelReady(null);
+          setArea({
+            kind: "amber",
+            reason:
+              "Excel refuses on zero rows — empty chart area, not a fake workbook.",
+          });
+          return;
+        }
+        try {
+          const generated = bundle.generateOfficeJs(outcome.option);
+          setExcelReady({
+            officeJs: generated.code,
+            rows: envelope.input.data.values,
+          });
+          setArea({
+            kind: "amber",
+            reason:
+              `This chart compiles for Excel — ${outcome.pointCount} points from ` +
+              `${envelope.row_count} rows, verified. Excel draws in Excel, not ` +
+              `in the browser.`,
+          });
+        } catch (error) {
+          setExcelReady(null);
+          setArea({
+            kind: "amber",
+            reason: `This app does not support this chart: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
+        }
         return;
       }
+      setExcelReady(null);
       const el = chartRef.current;
       if (!el) return;
       cleanupRef.current = await drawChart(el, targetBackend, outcome.option);
-      setArea({ kind: "rendered", pointCount: outcome.pointCount });
+      setArea({
+        kind: "rendered",
+        pointCount: outcome.pointCount,
+        seriesCount: compiledSeriesCount(outcome.option),
+      });
     },
     [emptyChartArea, flint, getToken],
   );
@@ -460,6 +499,58 @@ export function ChartPage() {
     }
   }
 
+  async function onDownloadExcel() {
+    if (excelReady === null) return;
+    setFormErrors([]);
+    try {
+      const blob = await downloadWorkbook(getToken, {
+        rows: excelReady.rows,
+        office_js: excelReady.officeJs,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${(title.trim() || "chart").replace(/[/\\?%*:|"<>]/g, "-")}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setFormErrors(toErrorLines(error));
+    }
+  }
+
+  async function onDeleteChart() {
+    if (!spec) return;
+    if (!window.confirm("Delete this chart? Revisions, runs and the cached bind go with it.")) {
+      return;
+    }
+    setFormErrors([]);
+    try {
+      await deleteSpec(getToken, spec.id);
+      navigate("/", { replace: true });
+    } catch (error) {
+      setFormErrors(toErrorLines(error));
+    }
+  }
+
+  async function onDeleteSource() {
+    if (!sourceId) return;
+    if (!window.confirm("Delete this source? Charts that used it will ask you to pick a source.")) {
+      return;
+    }
+    setFormErrors([]);
+    try {
+      const removed = sourceId;
+      await deleteSource(getToken, removed);
+      setSources((rows) => rows.filter((row) => row.id !== removed));
+      setSourceId(null);
+      if (spec?.default_source_id === removed) {
+        setSpec({ ...spec, default_source_id: null, cache: null });
+      }
+    } catch (error) {
+      setFormErrors(toErrorLines(error));
+    }
+  }
+
   const working = area.kind === "working";
   // One "a bind is in flight" flag for every control that would start one.
   const busy = working || refreshing;
@@ -549,6 +640,36 @@ export function ChartPage() {
         >
           {saving ? "Saving…" : "Save"}
         </button>
+        {excelReady ? (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy}
+            onClick={() => void onDownloadExcel()}
+          >
+            Download .xlsx
+          </button>
+        ) : null}
+        {spec ? (
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={busy || saving}
+            onClick={() => void onDeleteChart()}
+          >
+            Delete chart
+          </button>
+        ) : null}
+        {sourceId ? (
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={busy}
+            onClick={() => void onDeleteSource()}
+          >
+            Delete source
+          </button>
+        ) : null}
       </div>
 
       {addingSource ? (
@@ -615,7 +736,11 @@ export function ChartPage() {
               ))}
             </div>
           ) : null}
-          <div className="chart-area" data-state={area.kind}>
+          <div
+            className="chart-area"
+            data-state={area.kind}
+            data-series-count={area.kind === "rendered" ? String(area.seriesCount) : undefined}
+          >
             <div ref={chartRef} className="chart-canvas" />
             {area.kind === "idle" ? (
               <p className="area-note">Bind to draw.</p>

@@ -42,8 +42,8 @@ from studio.describe import (
     SourceUnreadableError,
 )
 from studio.ids import new_id
-from studio.models import DataSource
-from studio.storage import ObjectStore
+from studio.models import BindCache, DataSource
+from studio.storage import ObjectStore, drop
 
 _UPLOAD_SUFFIXES = (".csv", *PARQUET_SUFFIXES)
 
@@ -273,6 +273,55 @@ def get_source(
             status_code=status.HTTP_404_NOT_FOUND, detail="Source not found"
         )
     return SourceOut.model_validate(row)
+
+
+@router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_source(
+    source_id: uuid.UUID,
+    request: Request,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> Response:
+    """Hard delete (ADR-0007 D9): charts become *pick a source*, the cache
+    row cascades, and upload bytes leave only when this was the last
+    `(owner_id, sha256)` row. Postgres does not empty the bucket."""
+    row = db.scalars(
+        select(DataSource).where(
+            DataSource.id == source_id,
+            DataSource.owner_id == session.owner_id,
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Source not found"
+        )
+
+    store: ObjectStore = request.app.state.object_store
+    cache_keys = list(
+        db.scalars(select(BindCache.cache_key).where(BindCache.source_id == row.id))
+    )
+    object_key = row.object_key
+    # Unique index means at most one upload row per (owner, sha256); the
+    # last-row check is the rule, not an accident of that index.
+    drop_bytes = False
+    if row.kind == "upload" and object_key is not None and row.sha256 is not None:
+        other = db.scalars(
+            select(DataSource.id).where(
+                DataSource.owner_id == row.owner_id,
+                DataSource.kind == "upload",
+                DataSource.sha256 == row.sha256,
+                DataSource.id != row.id,
+            )
+        ).first()
+        drop_bytes = other is None
+
+    db.delete(row)
+    db.commit()
+    for key in cache_keys:
+        drop(store, key)
+    if drop_bytes and object_key is not None:
+        drop(store, object_key)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _spool_and_hash(

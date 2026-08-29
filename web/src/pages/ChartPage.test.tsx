@@ -31,6 +31,9 @@ vi.mock("../lib/charts-api", async (importOriginal) => {
     getSpec: vi.fn(),
     uploadSource: vi.fn(),
     registerUrlSource: vi.fn(),
+    deleteSpec: vi.fn(),
+    deleteSource: vi.fn(),
+    downloadWorkbook: vi.fn(),
   };
 });
 
@@ -89,6 +92,7 @@ const DISHONEST_FLINT: FlintGlobal = {
   assembleChartjs: () => ({}),
   assembleExcel: () => ({}),
   isExcelSupported: () => true,
+  generateOfficeJs: () => ({ code: "async function renderFlintChart() {}" }),
 };
 
 describe("ChartPage row-count refusal", () => {
@@ -162,12 +166,14 @@ function honestEnvelope(rows: number): BindResponse {
 const HONEST_FLINT: FlintGlobal = {
   assembleECharts: (input) => ({
     _dataLength: (input as { data: { values: unknown[] } }).data.values.length,
+    series: [{ type: "bar" }],
   }),
   assembleVegaLite: () => ({}),
   assemblePlotly: () => ({}),
   assembleChartjs: () => ({}),
   assembleExcel: () => ({}),
   isExcelSupported: () => true,
+  generateOfficeJs: () => ({ code: "async function renderFlintChart() {}" }),
 };
 
 const SAVED_SPEC: SpecOut = {
@@ -220,6 +226,9 @@ describe("ChartPage refresh", () => {
     renderSavedChart();
     // The user-initiated open bind draws the saved chart first.
     expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+    await waitFor(() => {
+      expect(document.querySelector(".chart-area")?.getAttribute("data-series-count")).toBe("1");
+    });
 
     vi.mocked(savedBind).mockResolvedValueOnce(honestEnvelope(2));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -263,5 +272,78 @@ describe("ChartPage refresh", () => {
       "rendered",
     );
     expect(screen.getByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+  });
+});
+
+const EXCEL_FLINT: FlintGlobal = {
+  ...HONEST_FLINT,
+  assembleExcel: (input) => {
+    const values = (input as { data: { values: unknown[] } }).data.values;
+    return {
+      schema: "flint.excel.chart/v1",
+      data: [["b", "a"], ...values.map(() => ["x", 1])],
+    };
+  },
+  generateOfficeJs: () => ({ code: "async function renderFlintChart() {}" }),
+};
+
+describe("ChartPage Excel download", () => {
+  beforeEach(() => {
+    vi.mocked(listSources).mockResolvedValue([SOURCE]);
+    vi.mocked(loadFlint).mockResolvedValue(EXCEL_FLINT);
+    vi.mocked(drawChart).mockClear();
+  });
+
+  it("offers an .xlsx when Excel compiles with rows", async () => {
+    vi.mocked(previewBind).mockResolvedValue(honestEnvelope(3));
+    render(
+      <MemoryRouter initialEntries={["/charts/new"]}>
+        <ChartPage />
+      </MemoryRouter>,
+    );
+    fireEvent.change(await screen.findByLabelText("Data source"), {
+      target: { value: SOURCE.id },
+    });
+    fireEvent.change(screen.getByLabelText(/input frame/i), {
+      target: { value: FRAME },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /bind & draw/i }));
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+
+    vi.mocked(previewBind).mockResolvedValue({
+      ...honestEnvelope(3),
+      backend: "excel",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Excel" }));
+
+    expect(await screen.findByText(/Excel draws in Excel, not in the browser/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download .xlsx" })).toBeTruthy();
+    expect(drawChart).toHaveBeenCalled();
+  });
+
+  it("does not offer a workbook on zero rows", async () => {
+    vi.mocked(previewBind).mockResolvedValue(honestEnvelope(3));
+    render(
+      <MemoryRouter initialEntries={["/charts/new"]}>
+        <ChartPage />
+      </MemoryRouter>,
+    );
+    fireEvent.change(await screen.findByLabelText("Data source"), {
+      target: { value: SOURCE.id },
+    });
+    fireEvent.change(screen.getByLabelText(/input frame/i), {
+      target: { value: FRAME },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /bind & draw/i }));
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+
+    vi.mocked(previewBind).mockResolvedValue({
+      ...honestEnvelope(0),
+      backend: "excel",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Excel" }));
+
+    expect(await screen.findByText(/Excel refuses on zero rows/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Download .xlsx" })).toBeNull();
   });
 });

@@ -18,6 +18,7 @@ export interface FlintGlobal {
   assembleChartjs(input: ChartAssemblyInput): unknown;
   assembleExcel(input: ChartAssemblyInput): unknown;
   isExcelSupported(chartType: string): boolean;
+  generateOfficeJs(value: unknown): { code: string };
 }
 
 export interface FlintPin {

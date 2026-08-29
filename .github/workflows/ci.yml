@@ -147,3 +147,70 @@ jobs:
           docker build -f chartagent-studio/Dockerfile
           --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_test_Y2ktcGxhY2Vob2xkZXIuY2xlcmsuYWNjb3VudHMuZGV2JA
           .
+
+  playwright:
+    # The one browser test that proves the architecture (ADR-0006 D15).
+    # The heavy image is CI-only — the runtime image never contains Playwright.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: studio
+          POSTGRES_PASSWORD: studio
+          POSTGRES_DB: studio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U studio"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://studio:studio@localhost:5432/studio
+      OBJECT_STORE_DIR: /tmp/studio-objects
+      CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+      CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+      VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      E2E_CLERK_USER_EMAIL: ${{ secrets.E2E_CLERK_USER_EMAIL }}
+    steps:
+      - name: Check out Studio
+        uses: actions/checkout@v4
+        with:
+          path: studio
+      - name: Check out the library at the pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: thearcscode/chartagent
+          ref: ${{ env.LIBRARY_GIT_SHA }}
+          path: chartagent
+          token: ${{ secrets.CHARTAGENT_REPO_TOKEN }}
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/web/package-lock.json
+      - name: Install the app
+        working-directory: studio/app
+        run: uv sync
+      - name: Install the SPA
+        working-directory: studio/web
+        run: npm ci
+      - name: Build the SPA
+        working-directory: studio/web
+        run: npm run build
+      - name: Migrate
+        working-directory: studio/app
+        run: uv run alembic upgrade head
+      - name: Install Chromium
+        working-directory: studio/web
+        run: npx playwright install --with-deps chromium
+      - name: Playwright smoke
+        working-directory: studio/web
+        run: npm run test:e2e
+

@@ -16,7 +16,7 @@ from studio.errors import (
     unmapped_error_handler,
 )
 from studio.observe import RequestContextMiddleware, configure_logging
-from studio.routes import charts, flint, health, session, sources
+from studio.routes import charts, excel, flint, health, session, sources
 from studio.storage import LocalObjectStore
 
 
@@ -76,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(session.router, prefix="/api")
     app.include_router(sources.router, prefix="/api")
     app.include_router(charts.router, prefix="/api")
+    app.include_router(excel.router, prefix="/api")
     app.include_router(flint.router, prefix="/api")
 
     if settings.web_dist_dir.is_dir():

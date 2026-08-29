@@ -51,7 +51,7 @@ from studio.errors import RowCapExceededError, error_code_for
 from studio.ids import new_id
 from studio.models import BindCache, Chart, DataSource, Run, SpecRevision
 from studio.observe import log_bind
-from studio.storage import ObjectStore
+from studio.storage import ObjectStore, drop
 
 router = APIRouter()
 
@@ -482,11 +482,6 @@ def _save_common(
     return doc, hashlib.sha256(canonical_json(doc).encode("utf-8")).hexdigest()
 
 
-# --------------------------------------------------------------------------
-# Routes
-# --------------------------------------------------------------------------
-
-
 @router.post("/specs", status_code=status.HTTP_201_CREATED)
 def create_spec(
     payload: SpecCreate,
@@ -626,6 +621,24 @@ def get_spec(
 ) -> SpecOut:
     chart = _owned_chart(db, chart_id, session.owner_id)
     return _spec_out(db, chart)
+
+
+@router.delete("/specs/{chart_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_spec(
+    chart_id: uuid.UUID,
+    request: Request,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> Response:
+    """Hard delete (ADR-0007 D9): revisions, runs and the cache row
+    cascade; the app empties the cached object. The source's bytes stay."""
+    chart = _owned_chart(db, chart_id, session.owner_id)
+    cache = db.get(BindCache, chart.id)
+    cache_key = cache.cache_key if cache is not None else None
+    db.delete(chart)
+    db.commit()
+    drop(_store(request), cache_key)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/specs/{chart_id}/cache")
