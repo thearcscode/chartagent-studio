@@ -78,7 +78,7 @@ export interface ApiErrorBody {
   backend?: string;
   pin?: string;
   stage?: string;
-  drifted?: Array<{ name: string; kind: string; expected: string; found: string }>;
+  drifted?: Array<{ name: string; kind: string; expected: string | null; found: string | null }>;
   row_count?: number;
   cap?: number;
   reason?: string;
@@ -175,11 +175,12 @@ export async function previewBind(
 }
 
 /** The user-initiated bind on a saved chart: writes a run, replaces the
- * cache on success. */
+ * cache on success. `refresh` (#75) is the same one bind against new
+ * bytes — no revision, no model. */
 export async function savedBind(
   getToken: GetToken,
   chartId: string,
-  payload: { backend: Backend; source_id?: string; trigger: "open" | "backend_switch" },
+  payload: { backend: Backend; source_id?: string; trigger: "open" | "backend_switch" | "refresh" },
 ): Promise<BindResponse> {
   return (await request(
     getToken,
