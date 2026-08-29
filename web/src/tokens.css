@@ -1,0 +1,89 @@
+/* chartagent design tokens — the canonical values.
+ *
+ * Extracted verbatim from `Chartagent UI.dc.html`, which declares the superset:
+ * the two landing canvases declare a subset of the same tokens, at the same values.
+ * `palette-check.py` asserts this file, its own literals, and every canvas agree —
+ * every token a file declares must match this file, not every file must declare
+ * every token.
+ *
+ * Chartagent Studio vendors this file byte-identically at `web/src/tokens.css` and
+ * diffs it in CI at the pinned library SHA. Change values here, never there.
+ *
+ * Two colour systems, held strictly apart. State accents are chrome only — they say
+ * which rail ran and whether the result needs attention, and never touch a chart.
+ * The five data-palette hues are for chart series and nothing else, and are
+ * deliberately identical in both themes, which only works because the fifth slot is
+ * a neutral. See `README.md` for the reasoning and the two recorded limits.
+ */
+
+:root {
+  /* surfaces */
+  --bg: #0a0a0c;
+  --app: #121216;
+  --panel: #17171c;
+  --raised: #1d1d23;
+  --rail: #0f0f13;
+
+  /* borders */
+  --border: #2a2a32;
+  --border-2: #26262e;
+  --border-soft: #22222a;
+  --border-faint: #1b1b22;
+  --border-strong: #3d3d47;
+
+  /* ink */
+  --ink: #ecebf0;
+  --muted: #8b8a97;
+  --faint: #6a6975;
+  --btn-hover: #ffffff;
+  --chip: rgba(255,255,255,.07);
+
+  /* state accents — chrome only, never in the chart frame */
+  --teal: #57d3cb;
+  --violet: #a78bfa;
+  --violet-2: #c4b2fd;
+  --amber: #e8b568;
+  --red: #e8737d;
+  --red-ink: #e0aeb3;
+  --blue: #7aa2f7;
+
+  /* data palette — chart series only. One set for both themes, so the light
+     override below deliberately does not redeclare these. */
+  --series-1: #0072b2;
+  --series-2: #e69f00;
+  --series-3: #56b4e9;
+  --series-4: #d55e00;
+  --series-5: #7f7f7f;
+}
+
+body[data-theme="light"] {
+  /* surfaces */
+  --bg: #e9e7e2;
+  --app: #ffffff;
+  --panel: #faf9f7;
+  --raised: #f1efea;
+  --rail: #f6f5f2;
+
+  /* borders */
+  --border: #dcd8d0;
+  --border-2: #e3dfd8;
+  --border-soft: #e8e5de;
+  --border-faint: #eeebe5;
+  --border-strong: #bfb9ae;
+
+  /* ink */
+  --ink: #191817;
+  --muted: #6b6862;
+  --faint: #8f8b83;
+  --btn-hover: #000000;
+  --chip: rgba(0,0,0,.06);
+
+  /* state accents */
+  --teal: #0d8f86;
+  --violet: #6b4de0;
+  --violet-2: #4f34bd;
+  --amber: #a8730c;
+  --red: #c33f4b;
+  --red-ink: #8a3a42;
+  --blue: #3a6fd8;
+}

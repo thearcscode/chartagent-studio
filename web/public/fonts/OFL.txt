@@ -1,0 +1,15 @@
+The fonts in this directory are licensed under the SIL Open Font License,
+Version 1.1:
+
+- Instrument Serif — Copyright 2022 The Instrument Serif Project Authors
+  (https://github.com/Instrument/instrument-serif)
+- IBM Plex Sans, IBM Plex Mono — Copyright 2018 IBM Corp.
+  (https://github.com/IBM/plex)
+
+SIL OFL 1.1 permits commercial use, embedding, and modification with no
+attribution required in the product. The full license text:
+https://openfontlicense.org/open-font-license-official-text/
+
+Downloaded as woff2 from the Google Fonts static file service on 2026-08-29;
+the application serves these files itself and never fetches a font CDN at
+runtime.

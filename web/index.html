@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chartagent Studio</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Dark by default; the toggle persists in localStorage. Applied before
+      // the module script runs so there is no theme flash. The storage key
+      // duplicates THEME_STORAGE_KEY in src/theme.ts — a pre-module script
+      // cannot import, so rename both or neither.
+      document.body.dataset.theme =
+        localStorage.getItem("studio-theme") === "light" ? "light" : "dark";
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

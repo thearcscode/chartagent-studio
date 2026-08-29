@@ -1,0 +1,107 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  # The library is resolved at this pinned git SHA in CI and deploys — never
+  # at a contributor's working tree. The tokens diff reads the same pin.
+  LIBRARY_GIT_SHA: d04fc0c08af9a2b6efd9bb34b959146c19b541ef
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Studio
+        uses: actions/checkout@v4
+        with:
+          path: studio
+      # While the library repo is private this needs a token with read access
+      # to it (a fine-grained PAT stored as CHARTAGENT_REPO_TOKEN). Once the
+      # library is public, the token line can be deleted.
+      - name: Check out the library at the pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: thearcscode/chartagent
+          ref: ${{ env.LIBRARY_GIT_SHA }}
+          path: chartagent
+          token: ${{ secrets.CHARTAGENT_REPO_TOKEN }}
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The path source in app/pyproject.toml (../../chartagent) now resolves
+      # to the pinned checkout, so uv sync needs no override.
+      - name: Install
+        working-directory: studio/app
+        run: uv sync
+      - name: ruff
+        working-directory: studio/app
+        run: uv run ruff check src tests
+      - name: mypy --strict
+        working-directory: studio/app
+        run: uv run mypy --strict src tests
+      - name: pytest
+        working-directory: studio/app
+        run: uv run pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: tsc
+        working-directory: web
+        run: npm run typecheck
+      - name: eslint
+        working-directory: web
+        run: npm run lint
+      - name: vitest
+        working-directory: web
+        run: npm test
+      - name: build
+        working-directory: web
+        run: npm run build
+
+  tokens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vendored tokens match the canonical file at the pinned SHA
+        run: |
+          curl -sf \
+            -H "Authorization: Bearer ${{ secrets.CHARTAGENT_REPO_TOKEN }}" \
+            "https://raw.githubusercontent.com/thearcscode/chartagent/${LIBRARY_GIT_SHA}/design/tokens.css" \
+            -o /tmp/tokens.canonical.css
+          diff /tmp/tokens.canonical.css web/src/tokens.css
+          echo "${LIBRARY_GIT_SHA}" | diff - web/src/tokens.source-sha
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Studio
+        uses: actions/checkout@v4
+        with:
+          path: studio
+      - name: Check out the library at the pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: thearcscode/chartagent
+          ref: ${{ env.LIBRARY_GIT_SHA }}
+          path: chartagent
+          token: ${{ secrets.CHARTAGENT_REPO_TOKEN }}
+      - name: Build the image
+        # Context is the workspace root holding both checkouts.
+        run: >-
+          docker build -f studio/Dockerfile
+          --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_test_Y2ktcGxhY2Vob2xkZXIuY2xlcmsuYWNjb3VudHMuZGV2JA
+          .
