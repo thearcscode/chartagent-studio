@@ -397,6 +397,7 @@ code,
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   position: relative;
+  overflow: hidden;
 }
 
 .chart-canvas {
@@ -535,4 +536,5 @@ code,
   background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: 10px;
+  overflow: hidden;
 }

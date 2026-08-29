@@ -5,6 +5,7 @@
  * @vitest-environment jsdom
  */
 
+import { StrictMode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,8 +15,12 @@ import type { FlintGlobal } from "../lib/flint";
 import { drawChart } from "../lib/renderers";
 import { ChartPage } from "./ChartPage";
 
+const { getToken } = vi.hoisted(() => ({
+  getToken: async () => "test-token",
+}));
+
 vi.mock("@clerk/react", () => ({
-  useAuth: () => ({ getToken: async () => "test-token" }),
+  useAuth: () => ({ getToken }),
   UserButton: () => null,
 }));
 
@@ -213,6 +218,35 @@ function renderSavedChart() {
   );
 }
 
+describe("ChartPage open a saved chart", () => {
+  beforeEach(() => {
+    vi.mocked(listSources).mockResolvedValue([SOURCE]);
+    vi.mocked(getSpec).mockResolvedValue(SAVED_SPEC);
+    vi.mocked(loadFlint).mockResolvedValue(HONEST_FLINT);
+    vi.mocked(savedBind).mockResolvedValue(honestEnvelope(3));
+    vi.mocked(drawChart).mockClear();
+  });
+
+  it("loads the saved spec after Strict Mode remounts the open effect", async () => {
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={[`/charts/${SAVED_SPEC.id}`]}>
+          <Routes>
+            <Route path="/charts/:chartId" element={<ChartPage />} />
+          </Routes>
+        </MemoryRouter>
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      const title = screen.getByLabelText("Chart title") as HTMLInputElement;
+      expect(title.value).toBe("Bar chart · sales.csv");
+    });
+    expect(await screen.findByRole("button", { name: "Refresh" })).toBeTruthy();
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+  });
+});
+
 describe("ChartPage refresh", () => {
   beforeEach(() => {
     vi.mocked(listSources).mockResolvedValue([SOURCE]);
@@ -235,7 +269,7 @@ describe("ChartPage refresh", () => {
 
     expect(await screen.findByText("2 rows · 41 ms · ECharts")).toBeTruthy();
     // The refresh is one bind against the chart's source, trigger refresh.
-    expect(vi.mocked(savedBind).mock.calls[1][2]).toEqual({
+    expect(vi.mocked(savedBind).mock.calls.at(-1)?.[2]).toEqual({
       backend: "echarts",
       source_id: undefined,
       trigger: "refresh",

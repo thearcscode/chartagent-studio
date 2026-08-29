@@ -390,11 +390,14 @@ export function ChartPage() {
 
   useEffect(() => {
     if (!chartId || openedRef.current === chartId) return;
-    openedRef.current = chartId;
     let cancelled = false;
     getSpec(getToken, chartId)
       .then((loaded) => {
         if (cancelled) return;
+        // Mark opened only after the spec lands. Setting this before the
+        // fetch made Strict Mode's remount skip the retry, so a saved
+        // chart URL rendered as a blank new chart.
+        openedRef.current = chartId;
         setSpec(loaded);
         setTitle(loaded.title);
         updateEditorText(JSON.stringify(loaded.content, null, 2));
