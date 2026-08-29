@@ -1,0 +1,40 @@
+# Local development: the two-service shape. Managed Postgres in deploys; the
+# host vendor is deliberately unchosen. The app talks to the database from the
+# sources ticket (#73) onward — until then the db service stands alone.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: studio
+      POSTGRES_DB: studio
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studio"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      # The context is the parent directory holding both this repo and the
+      # chartagent library checkout at the pinned SHA.
+      context: ..
+      dockerfile: chartagent-studio/Dockerfile
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
+    environment:
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL}
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
+      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:

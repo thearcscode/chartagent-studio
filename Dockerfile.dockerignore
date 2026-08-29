@@ -1,0 +1,17 @@
+# The build context is the parent directory of both checkouts; exclude
+# everything but the two repos, then their noise.
+*
+!chartagent-studio
+!chartagent
+
+chartagent-studio/.git
+chartagent-studio/.github
+chartagent-studio/app/.venv
+chartagent-studio/app/**/__pycache__
+chartagent-studio/web/node_modules
+chartagent-studio/web/dist
+
+chartagent/.git
+chartagent/.venv
+chartagent/**/__pycache__
+chartagent/prototypes
