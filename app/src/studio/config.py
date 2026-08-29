@@ -28,5 +28,13 @@ class Settings(BaseSettings):
     # Dev implementation of the object-store seam; the vendor is deliberately
     # unchosen (ADR-0006 D10). Relative to the process working directory.
     object_store_dir: Path = Path(".objects")
-    # One of the four caps that are configuration, never literals (ADR-0006 D9).
+    # The four caps are configuration, never literals (ADR-0006 D9).
     upload_max_bytes: int = 50 * 1024 * 1024
+    # A bind whose transform output exceeds this raises rather than
+    # truncates — the app never silently ships a subset.
+    bind_row_cap: int = 100_000
+    # Passed through to the library's `bind` timeout kwarg — the one cap
+    # that guards DuckDB's own execution.
+    bind_timeout_seconds: float = 30.0
+    # Backstop for the whole request; must exceed the bind timeout.
+    request_timeout_seconds: float = 120.0

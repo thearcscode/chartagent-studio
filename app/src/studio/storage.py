@@ -19,6 +19,12 @@ class ObjectStore(Protocol):
         raise means a race between identical bytes."""
         ...
 
+    def replace(self, key: str, source: BinaryIO) -> None:
+        """Write `source` at `key`, overwriting in place. The bind cache is a
+        stable per-chart slot replaced on every successful user-initiated
+        bind (ADR-0007 D6) — unlike content-addressed upload keys."""
+        ...
+
     def open(self, key: str) -> BinaryIO:
         """Read the bytes at `key` back (the bind path's seam)."""
         ...
@@ -48,6 +54,22 @@ class LocalObjectStore:
                 while chunk := source.read(1024 * 1024):
                     target.write(chunk)
             os.link(tmp_name, path)  # raises FileExistsError if the key is taken
+        finally:
+            Path(tmp_name).unlink(missing_ok=True)
+
+    def replace(self, key: str, source: BinaryIO) -> None:
+        path = self._path_for(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Same write-temp-then-move discipline as put, but the rename
+        # atomically overwrites the slot.
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent, prefix=f".{path.name}.", suffix=f".{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            with os.fdopen(fd, "wb") as target:
+                while chunk := source.read(1024 * 1024):
+                    target.write(chunk)
+            os.replace(tmp_name, path)
         finally:
             Path(tmp_name).unlink(missing_ok=True)
 

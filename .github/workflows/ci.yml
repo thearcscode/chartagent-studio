@@ -113,6 +113,17 @@ jobs:
             -o /tmp/tokens.canonical.css
           diff /tmp/tokens.canonical.css web/src/tokens.css
           echo "${LIBRARY_GIT_SHA}" | diff - web/src/tokens.source-sha
+      # The client compares the served bundle hash against the value it was
+      # built against (web/src/flint-pin.json); that value must be the pinned
+      # library's own pin record, or every browser fails loud at once.
+      - name: Built-against Flint pin matches the pinned library's pin
+        run: |
+          curl -sf \
+            -H "Authorization: Bearer ${{ secrets.CHARTAGENT_REPO_TOKEN }}" \
+            "https://raw.githubusercontent.com/thearcscode/chartagent/${LIBRARY_GIT_SHA}/src/chartagent/frame/vocab.json" \
+            -o /tmp/vocab.canonical.json
+          jq '{flint_version, bundle_sha256}' /tmp/vocab.canonical.json > /tmp/flint-pin.canonical.json
+          diff /tmp/flint-pin.canonical.json <(jq '{flint_version, bundle_sha256}' web/src/flint-pin.json)
 
   docker:
     runs-on: ubuntu-latest
