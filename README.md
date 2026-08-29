@@ -54,13 +54,22 @@ Environment:
 | `CLERK_ISSUER` | app | optional; the instance's Frontend API domain, verified as `iss` when set |
 | `CLERK_AUTHORIZED_PARTIES` | app | optional JSON list of allowed `azp` origins |
 | `WEB_DIST_DIR` | app | defaults to `web/dist` beside `app/` |
+| `DATABASE_URL` | app + alembic | defaults to the compose db, `postgresql+psycopg://studio:studio@localhost:5432/studio` |
+| `OBJECT_STORE_DIR` | app | dev object store root; defaults to `./.objects` |
+| `UPLOAD_MAX_BYTES` | app | upload cap, default 50 MiB — configuration, never a literal |
+| `STUDIO_TEST_DATABASE_URL` | tests | a disposable database the test session creates, migrates and truncates |
 
 ## Local services
 
 `compose.yaml` declares the two-service shape — the web container beside
-Postgres (managed in deploys; the host vendor is unchosen). The app reads the
-database from the sources ticket onward; until then `docker compose up db`
-stands alone.
+Postgres (managed in deploys; the host vendor is unchosen). The web container
+migrates at boot; for a bare `uvicorn` dev loop, bring the database up and
+migrate it yourself:
+
+```bash
+docker compose up -d db
+cd app && uv run alembic upgrade head
+```
 
 ## Design tokens
 
@@ -93,3 +102,7 @@ cd web && npm run dev
 cd app && uv run ruff check src tests && uv run mypy --strict src tests && uv run pytest
 cd web && npm run typecheck && npm run lint && npm test && npm run build
 ```
+
+`pytest` needs a Postgres it may create and truncate a disposable database
+on; point `STUDIO_TEST_DATABASE_URL` at one (the default assumes the compose
+db and uses `studio_test`).

@@ -13,6 +13,26 @@ env:
 jobs:
   python:
     runs-on: ubuntu-latest
+    # The sources ticket (#73) onward: tests run against a real Postgres —
+    # jsonb, the partial unique index and the CHECKs are Postgres dialect.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: studio
+          POSTGRES_PASSWORD: studio
+          POSTGRES_DB: studio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U studio"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # A disposable database the test session creates, migrates and
+      # truncates; never the development one.
+      STUDIO_TEST_DATABASE_URL: postgresql+psycopg://studio:studio@localhost:5432/studio_test
     steps:
       - name: Check out Studio
         uses: actions/checkout@v4
@@ -43,6 +63,15 @@ jobs:
       - name: mypy --strict
         working-directory: studio/app
         run: uv run mypy --strict src tests
+      # The models and the hand-written initial migration are two copies of
+      # one schema; `alembic check` fails red if they drift apart.
+      - name: Schema drift check (models ≡ migration)
+        working-directory: studio/app
+        env:
+          DATABASE_URL: postgresql+psycopg://studio:studio@localhost:5432/studio
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
       - name: pytest
         working-directory: studio/app
         run: uv run pytest -q

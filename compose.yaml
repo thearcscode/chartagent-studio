@@ -1,6 +1,6 @@
 # Local development: the two-service shape. Managed Postgres in deploys; the
-# host vendor is deliberately unchosen. The app talks to the database from the
-# sources ticket (#73) onward — until then the db service stands alone.
+# host vendor is deliberately unchosen. The web service migrates the database
+# at boot (alembic upgrade head) before serving.
 services:
   db:
     image: postgres:17
@@ -30,6 +30,7 @@ services:
       CLERK_JWKS_URL: ${CLERK_JWKS_URL}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
       CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-}
+      DATABASE_URL: postgresql+psycopg://studio:studio@db:5432/studio
     ports:
       - "8000:8000"
     depends_on:

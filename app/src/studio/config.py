@@ -22,3 +22,11 @@ class Settings(BaseSettings):
     jwt_leeway_seconds: float = 30.0
 
     web_dist_dir: Path = _REPO_ROOT / "web" / "dist"
+
+    # Managed Postgres in deploys; the compose db service in dev (ADR-0007 D1).
+    database_url: str = "postgresql+psycopg://studio:studio@localhost:5432/studio"
+    # Dev implementation of the object-store seam; the vendor is deliberately
+    # unchosen (ADR-0006 D10). Relative to the process working directory.
+    object_store_dir: Path = Path(".objects")
+    # One of the four caps that are configuration, never literals (ADR-0006 D9).
+    upload_max_bytes: int = 50 * 1024 * 1024
