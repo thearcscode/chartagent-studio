@@ -5,11 +5,14 @@ dev backend; keys are content-addressed, owner-scoped and write-once
 (ADR-0007 D5) — `{owner_id}/{sha256}.{ext}`.
 """
 
+import logging
 import os
 import tempfile
 import uuid
 from pathlib import Path
 from typing import BinaryIO, Protocol
+
+logger = logging.getLogger("studio")
 
 
 class ObjectStore(Protocol):
@@ -27,6 +30,11 @@ class ObjectStore(Protocol):
 
     def open(self, key: str) -> BinaryIO:
         """Read the bytes at `key` back (the bind path's seam)."""
+        ...
+
+    def delete(self, key: str) -> None:
+        """Remove the bytes at `key`. Missing keys are a no-op — deletes
+        are hard and must not fail because the bucket was already empty."""
         ...
 
 
@@ -75,3 +83,17 @@ class LocalObjectStore:
 
     def open(self, key: str) -> BinaryIO:
         return open(self._path_for(key), "rb")
+
+    def delete(self, key: str) -> None:
+        self._path_for(key).unlink(missing_ok=True)
+
+
+def drop(store: ObjectStore, key: str | None) -> None:
+    """Postgres does not empty the bucket (ADR-0007 D9). Missing keys
+    are a no-op; a store failure is logged and does not resurrect the row."""
+    if key is None:
+        return
+    try:
+        store.delete(key)
+    except Exception:
+        logger.warning("object delete failed", extra={"object_key": key})

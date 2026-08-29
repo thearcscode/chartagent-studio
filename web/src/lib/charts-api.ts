@@ -217,3 +217,29 @@ export async function savedBind(
     payload,
   )) as BindResponse;
 }
+
+export async function deleteSpec(getToken: GetToken, chartId: string): Promise<void> {
+  await request(getToken, "DELETE", `/api/specs/${chartId}`);
+}
+
+export async function deleteSource(getToken: GetToken, sourceId: string): Promise<void> {
+  await request(getToken, "DELETE", `/api/sources/${sourceId}`);
+}
+
+/** The bound rows plus the Office.js the client compiled — one .xlsx,
+ * written server-side by a plain writer. Empty rows are refused. */
+export async function downloadWorkbook(
+  getToken: GetToken,
+  payload: { rows: Array<Record<string, unknown>>; office_js: string },
+): Promise<Blob> {
+  const response = await apiFetch("/api/excel", getToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => ({}));
+    throw new ApiError(response.status, body as ApiErrorBody);
+  }
+  return response.blob();
+}

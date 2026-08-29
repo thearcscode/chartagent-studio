@@ -18,5 +18,10 @@ dist/
 .pgdata/
 .tmp/
 
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
 # OS
 .DS_Store

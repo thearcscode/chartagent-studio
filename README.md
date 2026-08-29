@@ -57,6 +57,9 @@ Environment:
 | `DATABASE_URL` | app + alembic | defaults to the compose db, `postgresql+psycopg://studio:studio@localhost:5432/studio` |
 | `OBJECT_STORE_DIR` | app | dev object store root; defaults to `./.objects` |
 | `UPLOAD_MAX_BYTES` | app | upload cap, default 50 MiB — configuration, never a literal |
+| `BIND_ROW_CAP` | app | bind row cap, default 100000 — raises rather than truncates |
+| `BIND_TIMEOUT_SECONDS` | app | DuckDB statement timeout passed to `bind`, default 30 |
+| `REQUEST_TIMEOUT_SECONDS` | app | whole-request backstop, default 120 |
 | `STUDIO_TEST_DATABASE_URL` | tests | a disposable database the test session creates, migrates and truncates |
 
 ## Local services
@@ -116,6 +119,8 @@ docker compose up --build         # db + the built app on :8000
 cd app && uv run ruff check src tests && uv run mypy --strict src tests && uv run pytest
 cd web && npm run typecheck && npm run lint && npm test && npm run build
 ```
+
+The Playwright smoke (`cd web && npm run test:e2e`) is CI-only: it needs a built SPA, the API, Postgres, and Clerk testing credentials (`CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`, `E2E_CLERK_USER_EMAIL`). It is not part of the local default checks.
 
 `pytest` needs a Postgres it may create and truncate a disposable database
 on; point `STUDIO_TEST_DATABASE_URL` at one (the default assumes the compose

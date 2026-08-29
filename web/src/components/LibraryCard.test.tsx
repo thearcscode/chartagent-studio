@@ -58,6 +58,7 @@ const HONEST_FLINT: FlintGlobal = {
   assembleChartjs: (input) => ({ _dataLength: rowCountOf(input) }),
   assembleExcel: (input) => ({ _dataLength: rowCountOf(input) }),
   isExcelSupported: () => true,
+  generateOfficeJs: () => ({ code: "" }),
 };
 
 function renderCard(spec: SpecOut, backend: "echarts" | "plotly" | "excel" = "echarts") {

@@ -5,12 +5,20 @@
  */
 
 import type { Backend } from "./backends";
+import { BASE_SIZE } from "./compile";
 
 export type DrawCleanup = () => void;
 
 async function drawECharts(el: HTMLElement, option: unknown): Promise<DrawCleanup> {
   const echarts = await import("echarts");
-  const chart = echarts.init(el, undefined, { renderer: "canvas" });
+  // ChartPage hides an empty `.chart-canvas` (`display: none`). ECharts
+  // measures the host at init, so a 0×0 box here is a successful bind
+  // and a blank stage. Pin the same size compile already pinned.
+  const chart = echarts.init(el, undefined, {
+    renderer: "canvas",
+    width: BASE_SIZE.width,
+    height: BASE_SIZE.height,
+  });
   chart.setOption(option as Parameters<typeof chart.setOption>[0]);
   return () => chart.dispose();
 }
@@ -40,8 +48,16 @@ async function drawChartjs(el: HTMLElement, option: unknown): Promise<DrawCleanu
 
 async function drawPlotly(el: HTMLElement, option: unknown): Promise<DrawCleanup> {
   const Plotly = await import("plotly.js-dist-min");
-  const spec = option as { data: unknown[]; layout?: unknown };
-  await Plotly.newPlot(el, spec.data, spec.layout, {
+  const spec = option as { data: unknown[]; layout?: Record<string, unknown> };
+  // Flint's layout can exceed the host (legend, default 700px width). Pin
+  // the compiled size so a Library card cannot spill out of its box.
+  const layout = {
+    ...spec.layout,
+    width: BASE_SIZE.width,
+    height: BASE_SIZE.height,
+    autosize: false,
+  };
+  await Plotly.newPlot(el, spec.data, layout, {
     displaylogo: false,
     responsive: false,
   });
@@ -55,6 +71,11 @@ export async function drawChart(
   backend: Exclude<Backend, "excel">,
   option: unknown,
 ): Promise<DrawCleanup> {
+  // Inline size beats `.chart-canvas:empty { display: none }`, which would
+  // otherwise leave Vega / Plotly / Chart.js measuring a 0×0 host too.
+  el.style.display = "grid";
+  el.style.width = `${BASE_SIZE.width}px`;
+  el.style.height = `${BASE_SIZE.height}px`;
   switch (backend) {
     case "echarts":
       return drawECharts(el, option);

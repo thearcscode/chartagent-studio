@@ -139,3 +139,19 @@ export function compileEnvelope(
     pointCount,
   };
 }
+
+/** Series count on a compiled ECharts-shaped option — what the Playwright
+ * smoke asserts against a real canvas. Other backends expose an array on
+ * `data` (Plotly) or `data.datasets` (Chart.js); those are counted too. */
+export function compiledSeriesCount(option: Record<string, unknown>): number {
+  if (Array.isArray(option.series)) return option.series.length;
+  if (Array.isArray(option.data)) {
+    const data = option.data as unknown[];
+    if (data.length > 0 && typeof data[0] === "object" && data[0] !== null) {
+      return data.length;
+    }
+  }
+  const nested = option.data as Record<string, unknown> | undefined;
+  if (Array.isArray(nested?.datasets)) return nested.datasets.length;
+  return 0;
+}

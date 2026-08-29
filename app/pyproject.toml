@@ -18,6 +18,7 @@ dependencies = [
     "alembic>=1.14",
     "duckdb>=1",
     "python-multipart>=0.0.9",
+    "xlsxwriter>=3",
 ]
 
 # The dependency declaration above never changes. The source below is dev-only:
@@ -53,6 +54,10 @@ strict = true
 mypy_path = "src"
 explicit_package_bases = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["xlsxwriter", "xlsxwriter.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["pyarrow", "pyarrow.*"]
