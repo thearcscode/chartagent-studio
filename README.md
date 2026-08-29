@@ -63,13 +63,7 @@ Environment:
 
 `compose.yaml` declares the two-service shape — the web container beside
 Postgres (managed in deploys; the host vendor is unchosen). The web container
-migrates at boot; for a bare `uvicorn` dev loop, bring the database up and
-migrate it yourself:
-
-```bash
-docker compose up -d db
-cd app && uv run alembic upgrade head
-```
+migrates at boot (`alembic upgrade head`) before serving.
 
 ## Design tokens
 
@@ -85,15 +79,35 @@ runtime.
 
 ## Develop
 
+One-time setup:
+
 ```bash
 cd app && uv sync                 # resolves chartagent from ../../chartagent
 cd web && npm ci
+cp app/.env.example app/.env      # fill in CLERK_JWKS_URL
+cp web/.env.example web/.env      # fill in VITE_CLERK_PUBLISHABLE_KEY
+```
 
-# terminal 1 — API on :8000
-cd app && CLERK_JWKS_URL=... uv run uvicorn studio.main:create_app --factory --reload
+Every session — database, then the two dev servers:
+
+```bash
+docker compose up -d db                       # Postgres on :5432
+cd app && uv run alembic upgrade head         # create/migrate the five tables
+
+# terminal 1 — API on :8000 (reads app/.env)
+cd app && uv run uvicorn studio.main:create_app --factory --reload
 
 # terminal 2 — SPA on :5173, proxying /api to :8000
 cd web && npm run dev
+```
+
+Or run the whole thing in containers instead — the image migrates the
+database at boot, so this is the full stack in one command (the Clerk
+variables must be in the shell environment or a `.env` beside
+`compose.yaml`):
+
+```bash
+docker compose up --build         # db + the built app on :8000
 ```
 
 ## Checks
