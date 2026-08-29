@@ -1,5 +1,6 @@
 import { useAuth, UserButton } from "@clerk/react";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { apiFetch } from "../api";
 import { getStoredTheme, setTheme, type Theme } from "../theme";
@@ -53,7 +54,8 @@ export function HomePage() {
         <section className="empty-state">
           <h1>No charts yet</h1>
           <p>
-            The Library arrives with the draw ticket. You are signed in
+            Paste a frame, bind it, draw it — the Library arrives with a later
+            ticket. You are signed in
             {ownerId ? (
               <>
                 {" "}
@@ -63,6 +65,11 @@ export function HomePage() {
               ""
             )}
             .
+          </p>
+          <p className="empty-state-cta">
+            <Link to="/charts/new" className="ghost-button">
+              New chart
+            </Link>
           </p>
         </section>
       </main>

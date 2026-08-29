@@ -13,5 +13,10 @@ dist/
 # Environment
 .env
 
+# Local dev state (object store, throwaway Postgres, temp spool)
+.objects/
+.pgdata/
+.tmp/
+
 # OS
 .DS_Store

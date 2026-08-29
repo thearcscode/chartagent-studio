@@ -33,8 +33,16 @@ COPY chartagent/ /srv/chartagent/
 COPY chartagent-studio/app/ ./app/
 RUN cd app && uv sync --no-dev --no-editable
 
+# DuckDB's httpfs extension is fetched at build time, not at runtime: the
+# first HTTPS source registration (or bind against one) would otherwise
+# download it inside the running container.
+RUN /srv/studio/app/.venv/bin/python -c \
+    "import duckdb; duckdb.connect(':memory:').execute('INSTALL httpfs')"
+
 COPY --from=web /build/dist ./web/dist
 ENV WEB_DIST_DIR=/srv/studio/web/dist
 
 EXPOSE 8000
-CMD ["/srv/studio/app/.venv/bin/uvicorn", "studio.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# Migrate, then serve: the five tables must exist before the first request.
+# `exec` keeps uvicorn as PID 1.
+CMD ["/bin/sh", "-c", "cd /srv/studio/app && .venv/bin/alembic upgrade head && exec .venv/bin/uvicorn studio.main:create_app --factory --host 0.0.0.0 --port 8000"]
