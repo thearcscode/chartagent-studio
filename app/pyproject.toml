@@ -13,6 +13,11 @@ dependencies = [
     "uvicorn>=0.30",
     "pydantic-settings>=2",
     "PyJWT[crypto]>=2.8",
+    "sqlalchemy>=2",
+    "psycopg[binary]>=3.1",
+    "alembic>=1.14",
+    "duckdb>=1",
+    "python-multipart>=0.0.9",
 ]
 
 # The dependency declaration above never changes. The source below is dev-only:
@@ -27,6 +32,7 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.8",
     "mypy>=1.13",
+    "pyarrow>=14",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -47,3 +53,7 @@ strict = true
 mypy_path = "src"
 explicit_package_bases = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
