@@ -37,9 +37,20 @@ export interface BindResponse {
 export interface CacheOut {
   revision_id: string;
   source_id: string;
+  /** The kind of the source the cache was bound against — a URL-backed
+   * cache is *as of bound_at*, and the card says so. */
+  source_kind: SourceOut["kind"];
   row_count: number;
   elapsed_ms: number;
   bound_at: string;
+}
+
+/** The cached bind object, served verbatim: `{revision_id, rows}` and
+ * nothing else — no envelope, no flint_version, no backend, no advisories
+ * (ADR-0007 D6). */
+export interface CacheObject {
+  revision_id: string;
+  rows: Array<Record<string, unknown>>;
 }
 
 export interface SpecOut {
@@ -142,6 +153,23 @@ export async function registerUrlSource(
 
 export async function getSpec(getToken: GetToken, chartId: string): Promise<SpecOut> {
   return (await request(getToken, "GET", `/api/specs/${chartId}`)) as SpecOut;
+}
+
+/** The Library's list: every card carries its frame and its cache pointer,
+ * so the page compiles from the cache and never binds behind a page load. */
+export async function listSpecs(getToken: GetToken): Promise<SpecOut[]> {
+  return (await request(getToken, "GET", "/api/specs")) as SpecOut[];
+}
+
+/** The cached bind object — the Library's read. A 404 (no pointer, or the
+ * object is gone) is the *Refresh to bind* state, not an error. */
+export async function fetchCacheObject(
+  getToken: GetToken,
+  chartId: string,
+): Promise<CacheObject | null> {
+  const response = await apiFetch(`/api/specs/${chartId}/cache`, getToken);
+  if (response.status === 404) return null;
+  return (await parseResponse(response)) as CacheObject;
 }
 
 export interface SpecSavePayload {
