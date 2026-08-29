@@ -5,11 +5,11 @@
  * @vitest-environment jsdom
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BindResponse, SourceOut } from "../lib/charts-api";
+import { ApiError, type BindResponse, type SourceOut, type SpecOut } from "../lib/charts-api";
 import type { FlintGlobal } from "../lib/flint";
 import { drawChart } from "../lib/renderers";
 import { ChartPage } from "./ChartPage";
@@ -41,8 +41,10 @@ vi.mock("../lib/flint", async (importOriginal) => {
 
 vi.mock("../lib/renderers", () => ({ drawChart: vi.fn() }));
 
-import { listSources, previewBind } from "../lib/charts-api";
+import { getSpec, listSources, previewBind, savedBind } from "../lib/charts-api";
 import { loadFlint } from "../lib/flint";
+
+afterEach(cleanup);
 
 const SOURCE: SourceOut = {
   id: "src-1",
@@ -127,5 +129,138 @@ describe("ChartPage row-count refusal", () => {
         "error",
       );
     });
+  });
+});
+
+/** An envelope whose row count agrees with its rows, so the honesty guard
+ * passes and the chart draws. */
+function honestEnvelope(rows: number): BindResponse {
+  return {
+    flint_version: "0.5.1",
+    backend: "echarts",
+    input: {
+      data: {
+        values: Array.from({ length: rows }, (_, index) => ({
+          a: index + 1,
+          b: `v${index + 1}`,
+        })),
+      },
+      chart_spec: {
+        chartType: "Bar Chart",
+        encodings: { x: { field: "b" }, y: { field: "a" } },
+      },
+    },
+    row_count: rows,
+    elapsed: 0.041,
+    warnings: [],
+    source_schema: {},
+  };
+}
+
+/** Compiles exactly as many points as the envelope carries — the honest
+ * counterpart of DISHONEST_FLINT above. */
+const HONEST_FLINT: FlintGlobal = {
+  assembleECharts: (input) => ({
+    _dataLength: (input as { data: { values: unknown[] } }).data.values.length,
+  }),
+  assembleVegaLite: () => ({}),
+  assemblePlotly: () => ({}),
+  assembleChartjs: () => ({}),
+  assembleExcel: () => ({}),
+  isExcelSupported: () => true,
+};
+
+const SAVED_SPEC: SpecOut = {
+  id: "chart-1",
+  title: "Bar chart · sales.csv",
+  kind: "frame",
+  revision_id: "rev-1",
+  revision_number: 1,
+  content: {
+    chart_spec: {
+      chartType: "Bar Chart",
+      encodings: { x: { field: "b" }, y: { field: "a" } },
+    },
+  },
+  content_hash: "hash-1",
+  authored_flint_version: "0.5.1",
+  default_source_id: SOURCE.id,
+  created_at: "2026-08-29T00:00:00Z",
+  updated_at: "2026-08-29T00:00:00Z",
+  cache: {
+    revision_id: "rev-1",
+    source_id: SOURCE.id,
+    row_count: 3,
+    elapsed_ms: 41,
+    bound_at: "2026-08-29T00:00:00Z",
+  },
+};
+
+function renderSavedChart() {
+  return render(
+    <MemoryRouter initialEntries={[`/charts/${SAVED_SPEC.id}`]}>
+      <Routes>
+        <Route path="/charts/:chartId" element={<ChartPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe("ChartPage refresh", () => {
+  beforeEach(() => {
+    vi.mocked(listSources).mockResolvedValue([SOURCE]);
+    vi.mocked(getSpec).mockResolvedValue(SAVED_SPEC);
+    vi.mocked(loadFlint).mockResolvedValue(HONEST_FLINT);
+    vi.mocked(savedBind).mockResolvedValue(honestEnvelope(3));
+    vi.mocked(drawChart).mockClear();
+  });
+
+  it("redraws from the new envelope on a successful refresh", async () => {
+    renderSavedChart();
+    // The user-initiated open bind draws the saved chart first.
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+
+    vi.mocked(savedBind).mockResolvedValueOnce(honestEnvelope(2));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByText("2 rows · 41 ms · ECharts")).toBeTruthy();
+    // The refresh is one bind against the chart's source, trigger refresh.
+    expect(vi.mocked(savedBind).mock.calls[1][2]).toEqual({
+      backend: "echarts",
+      source_id: undefined,
+      trigger: "refresh",
+    });
+    // The picture redrew from the new envelope — same client path as a draw.
+    await waitFor(() => {
+      expect(vi.mocked(drawChart).mock.calls.length).toBe(2);
+    });
+  });
+
+  it("keeps the previous picture and names the drifted fields on a failed refresh", async () => {
+    const { container } = renderSavedChart();
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+    const drawsBefore = vi.mocked(drawChart).mock.calls.length;
+
+    vi.mocked(savedBind).mockRejectedValueOnce(
+      new ApiError(409, {
+        error: "schema_drift",
+        message: "source column(s) dropped: a",
+        stage: "source",
+        drifted: [{ name: "a", kind: "dropped", expected: "a", found: null }],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    // The drift is listed field by field…
+    expect(await screen.findByText(/source column\(s\) dropped: a/)).toBeTruthy();
+    expect(screen.getByText(/a: expected a, found — \(dropped\)/)).toBeTruthy();
+
+    // …and the previous picture is untouched: no redraw, no emptied area,
+    // the cost line still describes the bind that produced the picture.
+    expect(vi.mocked(drawChart).mock.calls.length).toBe(drawsBefore);
+    expect(container.querySelector(".chart-area")?.getAttribute("data-state")).toBe(
+      "rendered",
+    );
+    expect(screen.getByText("3 rows · 41 ms · ECharts")).toBeTruthy();
   });
 });

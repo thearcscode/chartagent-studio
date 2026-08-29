@@ -3,6 +3,11 @@
  * here*, error — with the chart area empty on every refusal, two warning
  * rails that never merge, and a cost-and-latency line from the bind that
  * produced the picture.
+ *
+ * Refresh (#75): one click re-binds the saved revision against the source —
+ * zero LLM. A successful refresh redraws from the new envelope through the
+ * same client path as any bind; a failed refresh names the typed error
+ * (drift, field by field) and leaves the previous picture untouched.
  */
 
 import { useAuth, UserButton } from "@clerk/react";
@@ -81,11 +86,19 @@ function errorLines(error: ApiError): string[] {
   if (fields.length) lines.push(fields.join(" · "));
   for (const field of body.drifted ?? []) {
     lines.push(
-      `${field.name}: expected ${field.expected}, found ${field.found} (${field.kind})`,
+      `${field.name}: expected ${field.expected ?? "—"}, found ${field.found ?? "—"} (${field.kind})`,
     );
   }
   if (body.request_id) lines.push(`request id: ${body.request_id}`);
   return lines;
+}
+
+/** Any caught value → displayable lines: the mapped error's typed fields
+ * when the server sent them, the plain message otherwise. */
+function toErrorLines(error: unknown): string[] {
+  return error instanceof ApiError
+    ? errorLines(error)
+    : [error instanceof Error ? error.message : String(error)];
 }
 
 export function ChartPage() {
@@ -108,6 +121,8 @@ export function ChartPage() {
   >([]);
   const [lastBind, setLastBind] = useState<LastBind | null>(null);
   const [formErrors, setFormErrors] = useState<string[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
@@ -115,6 +130,23 @@ export function ChartPage() {
   const chartRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<DrawCleanup | null>(null);
   const openedRef = useRef<string | null>(null);
+  // The editor text as a ref: binds kicked off from the load effect (or any
+  // callback captured before the latest keystroke's render) must read the
+  // current text, not a stale closure.
+  const editorTextRef = useRef("");
+
+  const updateEditorText = useCallback((value: string) => {
+    editorTextRef.current = value;
+    setEditorText(value);
+  }, []);
+
+  /** A saved chart binds the saved revision server-side, so the editor must
+   * be showing exactly that revision before any bind goes out. */
+  const editorDiffersFrom = useCallback(
+    (currentSpec: SpecOut) =>
+      editorTextRef.current !== JSON.stringify(currentSpec.content, null, 2),
+    [],
+  );
 
   const toggleTheme = useCallback(() => {
     const next: Theme = theme === "dark" ? "light" : "dark";
@@ -130,7 +162,7 @@ export function ChartPage() {
 
   const parseEditor = useCallback((): Record<string, unknown> | null => {
     try {
-      const parsed: unknown = JSON.parse(editorText);
+      const parsed: unknown = JSON.parse(editorTextRef.current);
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
         setFormErrors(["The frame must be a JSON object."]);
         return null;
@@ -143,7 +175,51 @@ export function ChartPage() {
       ]);
       return null;
     }
-  }, [editorText]);
+  }, []);
+
+  /** Compile and draw a bound envelope — the client path every bind shares
+   * (open, backend switch, refresh): assemble, palette, the row-count
+   * honesty guard, then draw or refuse and name the drop. */
+  const drawEnvelope = useCallback(
+    async (
+      envelope: BindResponse,
+      targetBackend: Backend,
+      boundContent: Record<string, unknown>,
+    ) => {
+      const bundle = flint ?? (await loadFlint(getToken));
+      setFlint(bundle);
+      const outcome = compileEnvelope(bundle, envelope, targetBackend);
+      setServerWarnings(envelope.warnings);
+      if (outcome.kind === "refusal") {
+        // Refuse, name the drop, empty chart area — error for the honesty
+        // guard, amber for realised capability.
+        emptyChartArea();
+        setLastBind(null);
+        setArea({ kind: outcome.tone, reason: outcome.reason });
+        return;
+      }
+      setCompileWarnings(outcome.compileWarnings);
+      setLastBind({ content: boundContent, envelope, backend: targetBackend });
+      if (targetBackend === "excel") {
+        // Compiles, verified against the row count — but Excel draws in
+        // Excel, not here. Amber: won't render here.
+        emptyChartArea();
+        setArea({
+          kind: "amber",
+          reason:
+            `This chart compiles for Excel — ${outcome.pointCount} points from ` +
+            `${envelope.row_count} rows, verified. Excel draws in Excel, not ` +
+            `in the browser; the .xlsx writer arrives with a later ticket.`,
+        });
+        return;
+      }
+      const el = chartRef.current;
+      if (!el) return;
+      cleanupRef.current = await drawChart(el, targetBackend, outcome.option);
+      setArea({ kind: "rendered", pointCount: outcome.pointCount });
+    },
+    [emptyChartArea, flint, getToken],
+  );
 
   const runBind = useCallback(
     async (
@@ -157,17 +233,14 @@ export function ChartPage() {
         setFormErrors(["Pick a source before binding an unsaved frame."]);
         return;
       }
-      if (
-        currentSpec !== null &&
-        editorText !== JSON.stringify(currentSpec.content, null, 2)
-      ) {
-        // A saved chart binds the saved revision server-side. Binding with a
-        // dirty editor would draw the old frame — and a later save would
-        // pair the new frame with rows bound from the old one.
+      if (currentSpec !== null && editorDiffersFrom(currentSpec)) {
+        // Binding with a dirty editor would draw the old frame — and a later
+        // save would pair the new frame with rows bound from the old one.
         setFormErrors(["Save your edits first — a saved chart binds the saved revision."]);
         return;
       }
       setFormErrors([]);
+      setRefreshError(null);
       emptyChartArea();
       setArea({ kind: "working" });
       setServerWarnings([]);
@@ -184,41 +257,13 @@ export function ChartPage() {
                 source_id: sourceId as string,
                 backend: targetBackend,
               });
-        const bundle = flint ?? (await loadFlint(getToken));
-        setFlint(bundle);
-        const outcome = compileEnvelope(bundle, envelope, targetBackend);
-        setServerWarnings(envelope.warnings);
-        if (outcome.kind === "refusal") {
-          // Refuse, name the drop, empty chart area — error for the honesty
-          // guard, amber for realised capability.
-          setLastBind(null);
-          setArea({ kind: outcome.tone, reason: outcome.reason });
-          return;
-        }
-        setCompileWarnings(outcome.compileWarnings);
         // The frame the server actually bound: the stored revision for a
         // saved chart, the editor text for a preview.
-        setLastBind({
-          content: currentSpec !== null ? currentSpec.content : frame,
+        await drawEnvelope(
           envelope,
-          backend: targetBackend,
-        });
-        if (targetBackend === "excel") {
-          // Compiles, verified against the row count — but Excel draws in
-          // Excel, not here. Amber: won't render here.
-          setArea({
-            kind: "amber",
-            reason:
-              `This chart compiles for Excel — ${outcome.pointCount} points from ` +
-              `${envelope.row_count} rows, verified. Excel draws in Excel, not ` +
-              `in the browser; the .xlsx writer arrives with a later ticket.`,
-          });
-          return;
-        }
-        const el = chartRef.current;
-        if (!el) return;
-        cleanupRef.current = await drawChart(el, targetBackend, outcome.option);
-        setArea({ kind: "rendered", pointCount: outcome.pointCount });
+          targetBackend,
+          currentSpec !== null ? currentSpec.content : frame,
+        );
       } catch (error) {
         emptyChartArea();
         if (error instanceof ApiError && error.body.error === "backend_capability") {
@@ -237,8 +282,43 @@ export function ChartPage() {
         });
       }
     },
-    [editorText, emptyChartArea, flint, getToken, parseEditor, sourceId],
+    [drawEnvelope, editorDiffersFrom, emptyChartArea, getToken, parseEditor, sourceId],
   );
+
+  /** Zero-LLM refresh (#75): one bind of the saved revision against the
+   * chart's source — new bytes, no model, no new revision. The previous
+   * picture stays up while binding, and a failed refresh leaves it exactly
+   * as it was; only a successful bind redraws (through the same client path
+   * as any draw). */
+  const onRefresh = useCallback(async () => {
+    if (!spec) return;
+    if (editorDiffersFrom(spec)) {
+      setFormErrors(["Save your edits first — a refresh binds the saved revision."]);
+      return;
+    }
+    setFormErrors([]);
+    setRefreshError(null);
+    setRefreshing(true);
+    try {
+      const chosenSource = sourceId !== null && sourceId !== spec.default_source_id;
+      const envelope = await savedBind(getToken, spec.id, {
+        backend,
+        source_id: chosenSource ? sourceId : undefined,
+        trigger: "refresh",
+      });
+      if (chosenSource) {
+        // A chosen source became the chart's default server-side.
+        setSpec({ ...spec, default_source_id: sourceId });
+      }
+      await drawEnvelope(envelope, backend, spec.content);
+    } catch (error) {
+      // The cache is untouched server-side; the picture, rails and cost
+      // line stay. The mapped error names the drifted fields alongside.
+      setRefreshError(toErrorLines(error));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [backend, drawEnvelope, editorDiffersFrom, getToken, sourceId, spec]);
 
   // Initial load: sources, the Flint pin (fail loud on mismatch), and — for
   // a saved chart — the spec, then the user-initiated open bind.
@@ -277,7 +357,7 @@ export function ChartPage() {
         if (cancelled) return;
         setSpec(loaded);
         setTitle(loaded.title);
-        setEditorText(JSON.stringify(loaded.content, null, 2));
+        updateEditorText(JSON.stringify(loaded.content, null, 2));
         setSourceId(loaded.default_source_id);
         // Opening a saved chart is the user-initiated `open` bind.
         void runBind("open", backend, loaded);
@@ -343,16 +423,12 @@ export function ChartPage() {
           });
       setSpec(saved);
       setTitle(saved.title);
-      setEditorText(JSON.stringify(saved.content, null, 2));
+      updateEditorText(JSON.stringify(saved.content, null, 2));
       if (!spec) {
         navigate(`/charts/${saved.id}`, { replace: true });
       }
     } catch (error) {
-      setFormErrors(
-        error instanceof ApiError
-          ? errorLines(error)
-          : [error instanceof Error ? error.message : String(error)],
-      );
+      setFormErrors(toErrorLines(error));
     } finally {
       setSaving(false);
     }
@@ -366,11 +442,7 @@ export function ChartPage() {
       setSourceId(created.id);
       setAddingSource(false);
     } catch (error) {
-      setFormErrors(
-        error instanceof ApiError
-          ? errorLines(error)
-          : [error instanceof Error ? error.message : String(error)],
-      );
+      setFormErrors(toErrorLines(error));
     }
   }
 
@@ -383,15 +455,13 @@ export function ChartPage() {
       setUrlDraft("");
       setAddingSource(false);
     } catch (error) {
-      setFormErrors(
-        error instanceof ApiError
-          ? errorLines(error)
-          : [error instanceof Error ? error.message : String(error)],
-      );
+      setFormErrors(toErrorLines(error));
     }
   }
 
   const working = area.kind === "working";
+  // One "a bind is in flight" flag for every control that would start one.
+  const busy = working || refreshing;
 
   return (
     <div className="app-shell">
@@ -441,7 +511,7 @@ export function ChartPage() {
         <div className="backend-picker" role="radiogroup" aria-label="Backend">
           {BACKENDS.map((candidate) => {
             const disabled =
-              working || (candidate === "excel" && !excel.ok);
+              busy || (candidate === "excel" && !excel.ok);
             return (
               <button
                 key={candidate}
@@ -470,11 +540,22 @@ export function ChartPage() {
         <button
           type="button"
           className="primary-button"
-          disabled={working}
+          disabled={busy}
           onClick={() => void runBind(spec ? "backend_switch" : "preview", backend, spec)}
         >
           Bind &amp; draw
         </button>
+        {spec ? (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || !sourceId}
+            title={sourceId ? undefined : "Pick a source to refresh against"}
+            onClick={() => void onRefresh()}
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        ) : null}
         <button
           type="button"
           className="primary-button"
@@ -529,7 +610,7 @@ export function ChartPage() {
             spellCheck={false}
             value={editorText}
             placeholder={EDITOR_PLACEHOLDER}
-            onChange={(event) => setEditorText(event.target.value)}
+            onChange={(event) => updateEditorText(event.target.value)}
           />
           {formErrors.length > 0 ? (
             <div className="form-errors" role="alert">
@@ -541,6 +622,14 @@ export function ChartPage() {
         </section>
 
         <section className="stage-pane">
+          {refreshError ? (
+            <div className="refresh-error" role="alert">
+              <strong>Refresh failed — the previous picture is unchanged.</strong>
+              {refreshError.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          ) : null}
           <div className="chart-area" data-state={area.kind}>
             <div ref={chartRef} className="chart-canvas" />
             {area.kind === "idle" ? (

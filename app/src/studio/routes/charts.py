@@ -8,6 +8,11 @@ no-op on byte-identical content, `canonical_json()` stored verbatim, the
 Bind (ADR-0006 D4/D5): the server binds; preview binds write nothing,
 user-initiated binds on saved charts write a `runs` row and replace the
 cache — only when the cache is honest (ADR-0007 D8 erratum).
+
+Refresh (#75) is not a separate operation: it is the same one bind with
+`trigger_kind='refresh'` — no model, no planner, no new revision. A failed
+refresh writes the error run and leaves the cache, the default source and
+the picture they back exactly as they were.
 """
 
 from __future__ import annotations
@@ -99,7 +104,9 @@ class SavedBindIn(BaseModel):
 
     backend: Backend
     source_id: uuid.UUID | None = None
-    trigger: Literal["open", "backend_switch"] = "open"
+    # `refresh` (#75) is the same one bind with a different audit label: the
+    # saved frame against new bytes, no revision, no model.
+    trigger: Literal["open", "backend_switch", "refresh"] = "open"
 
 
 class AdvisoryOut(BaseModel):
@@ -658,8 +665,6 @@ def saved_bind(
             detail="Chart has no source; pass source_id",
         )
     source = _owned_source(db, source_id, session.owner_id)
-    if source.id != chart.default_source_id:
-        chart.default_source_id = source.id  # ADR-0007 D5
 
     request_id: str | None = getattr(request.state, "request_id", None)
     try:
@@ -692,6 +697,13 @@ def saved_bind(
             error_code=error_code_for(exc),
         )
         raise
+
+    # ADR-0007 D5: a bind that names another source moves the default — but
+    # only once the bind has succeeded. A failed bind changes nothing about
+    # the chart: the cache, the picture it backs, and the source pointer all
+    # stay with the last good bind (#75).
+    if source.id != chart.default_source_id:
+        chart.default_source_id = source.id
 
     elapsed_ms = int(round(envelope.elapsed * 1000))
     rows: list[dict[str, Any]] = envelope.input["data"]["values"]
