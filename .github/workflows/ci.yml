@@ -128,10 +128,12 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
+      # The Dockerfile's context contract: the Studio checkout's directory is
+      # named `chartagent-studio` (see the header comment in Dockerfile).
       - name: Check out Studio
         uses: actions/checkout@v4
         with:
-          path: studio
+          path: chartagent-studio
       - name: Check out the library at the pinned SHA
         uses: actions/checkout@v4
         with:
@@ -142,6 +144,6 @@ jobs:
       - name: Build the image
         # Context is the workspace root holding both checkouts.
         run: >-
-          docker build -f studio/Dockerfile
+          docker build -f chartagent-studio/Dockerfile
           --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_test_Y2ktcGxhY2Vob2xkZXIuY2xlcmsuYWNjb3VudHMuZGV2JA
           .
