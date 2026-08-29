@@ -15,7 +15,7 @@ import httpx
 from chartagent import canonical_json
 from fastapi.testclient import TestClient
 
-from tests.conftest import SigningKeys, bearer_headers, make_app
+from tests.conftest import DelegatingStore, SigningKeys, bearer_headers, make_app
 
 CSV_BYTES = b"a,b\n1,x\n2,y\n3,z\n"
 CSV_BYTES_2 = b"a,b\n4,p\n5,q\n"
@@ -289,17 +289,8 @@ def test_dishonest_save_writes_no_cache(
     assert _runs(db_client, signing, created.json()["id"]) == []
 
 
-class _UnwritableCacheStore:
+class _UnwritableCacheStore(DelegatingStore):
     """Reads and upload writes work; the cache slot write fails."""
-
-    def __init__(self, inner: Any) -> None:
-        self._inner = inner
-
-    def put(self, key: str, source: Any) -> None:
-        self._inner.put(key, source)
-
-    def open(self, key: str) -> Any:
-        return self._inner.open(key)
 
     def replace(self, key: str, source: Any) -> None:
         raise OSError("disk full")

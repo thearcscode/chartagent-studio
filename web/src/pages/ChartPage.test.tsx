@@ -190,6 +190,7 @@ const SAVED_SPEC: SpecOut = {
   cache: {
     revision_id: "rev-1",
     source_id: SOURCE.id,
+    source_kind: "upload",
     row_count: 3,
     elapsed_ms: 41,
     bound_at: "2026-08-29T00:00:00Z",

@@ -14,6 +14,7 @@ import { useAuth, UserButton } from "@clerk/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { BackendPicker } from "../components/BackendPicker";
 import {
   ApiError,
   createSpec,
@@ -29,7 +30,7 @@ import {
   type SourceOut,
   type SpecOut,
 } from "../lib/charts-api";
-import { BACKEND_LABELS, BACKENDS, type Backend } from "../lib/backends";
+import { BACKEND_LABELS, type Backend } from "../lib/backends";
 import { compileEnvelope } from "../lib/compile";
 import { excelGate } from "../lib/excel";
 import { loadFlint, type FlintGlobal } from "../lib/flint";
@@ -508,35 +509,19 @@ export function ChartPage() {
         >
           Add source
         </button>
-        <div className="backend-picker" role="radiogroup" aria-label="Backend">
-          {BACKENDS.map((candidate) => {
-            const disabled =
-              busy || (candidate === "excel" && !excel.ok);
-            return (
-              <button
-                key={candidate}
-                type="button"
-                className={`backend-button${backend === candidate ? " is-active" : ""}`}
-                disabled={disabled}
-                title={
-                  candidate === "excel" && !excel.ok ? excel.reason : undefined
-                }
-                onClick={() => {
-                  setBackend(candidate);
-                  // Switching backend is a view control and a user-initiated
-                  // bind — never a silent reuse of another backend's picture.
-                  void runBind(
-                    spec ? "backend_switch" : "preview",
-                    candidate,
-                    spec,
-                  );
-                }}
-              >
-                {BACKEND_LABELS[candidate]}
-              </button>
-            );
-          })}
-        </div>
+        <BackendPicker
+          backend={backend}
+          isDisabled={(candidate) => busy || (candidate === "excel" && !excel.ok)}
+          title={(candidate) =>
+            candidate === "excel" && !excel.ok ? excel.reason : undefined
+          }
+          onPick={(candidate) => {
+            setBackend(candidate);
+            // Switching backend is a view control and a user-initiated
+            // bind — never a silent reuse of another backend's picture.
+            void runBind(spec ? "backend_switch" : "preview", candidate, spec);
+          }}
+        />
         <button
           type="button"
           className="primary-button"

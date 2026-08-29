@@ -13,6 +13,10 @@ Refresh (#75) is not a separate operation: it is the same one bind with
 `trigger_kind='refresh'` — no model, no planner, no new revision. A failed
 refresh writes the error run and leaves the cache, the default source and
 the picture they back exactly as they were.
+
+The Library (#76) reads that cache and never binds: the list route carries
+each card's frame and pointer, the cache route serves the `{revision_id,
+rows}` object verbatim, and neither writes a run.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from urllib.parse import urlparse
 
 from chartagent import Backend, InputFrame, bind, canonical_json, flint_bundle
 from chartagent.errors import ChartAgentError
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
@@ -130,6 +134,9 @@ class BindOut(BaseModel):
 class CacheOut(BaseModel):
     revision_id: uuid.UUID
     source_id: uuid.UUID
+    # The kind of the source the cache was bound against — a URL-backed
+    # cache is *as of bound_at*, and the card says so (ADR-0007 D6).
+    source_kind: str
     row_count: int
     elapsed_ms: int
     bound_at: datetime
@@ -431,6 +438,21 @@ def _bind_out(envelope: Any) -> BindOut:
     )
 
 
+def _cache_out(db: OrmSession, cache: BindCache) -> CacheOut:
+    source = db.get(DataSource, cache.source_id)
+    # bind_caches.source_id is ON DELETE CASCADE: a live pointer's source
+    # always exists.
+    assert source is not None
+    return CacheOut(
+        revision_id=cache.revision_id,
+        source_id=cache.source_id,
+        source_kind=source.kind,
+        row_count=cache.row_count,
+        elapsed_ms=cache.elapsed_ms,
+        bound_at=cache.bound_at,
+    )
+
+
 def _spec_out(db: OrmSession, chart: Chart) -> SpecOut:
     revision = _current_revision(db, chart)
     cache = db.get(BindCache, chart.id)
@@ -446,17 +468,7 @@ def _spec_out(db: OrmSession, chart: Chart) -> SpecOut:
         default_source_id=chart.default_source_id,
         created_at=chart.created_at,
         updated_at=chart.updated_at,
-        cache=(
-            CacheOut(
-                revision_id=cache.revision_id,
-                source_id=cache.source_id,
-                row_count=cache.row_count,
-                elapsed_ms=cache.elapsed_ms,
-                bound_at=cache.bound_at,
-            )
-            if cache
-            else None
-        ),
+        cache=_cache_out(db, cache) if cache else None,
     )
 
 
@@ -589,6 +601,23 @@ def update_spec(
     return _spec_out(db, chart)
 
 
+@router.get("/specs")
+def list_specs(
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> list[SpecOut]:
+    """The Library (#76): every card carries its current revision, its frame
+    and its cache pointer, so the client can compile from the cache without
+    the server binding — six cards are six object reads, not six DuckDB
+    scans (ADR-0007 D6)."""
+    charts = db.scalars(
+        select(Chart)
+        .where(Chart.owner_id == session.owner_id)
+        .order_by(Chart.updated_at.desc())
+    ).all()
+    return [_spec_out(db, chart) for chart in charts]
+
+
 @router.get("/specs/{chart_id}")
 def get_spec(
     chart_id: uuid.UUID,
@@ -597,6 +626,40 @@ def get_spec(
 ) -> SpecOut:
     chart = _owned_chart(db, chart_id, session.owner_id)
     return _spec_out(db, chart)
+
+
+@router.get("/specs/{chart_id}/cache")
+def read_cache(
+    chart_id: uuid.UUID,
+    request: Request,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> Response:
+    """The cached bind object, served verbatim: `{revision_id, rows}` and
+    nothing else (ADR-0007 D6). A pure read — no bind, no DuckDB, no run
+    row. No pointer, or a pointer whose object is gone, is the same empty
+    card: 404, which the client renders as *Refresh to bind*."""
+    chart = _owned_chart(db, chart_id, session.owner_id)
+    cache = db.get(BindCache, chart.id)
+    if cache is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chart has no cached bind"
+        )
+    try:
+        with _store(request).open(cache.cache_key) as stream:
+            payload = stream.read()
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The cached object is missing",
+        ) from exc
+    return Response(
+        content=payload,
+        media_type="application/json",
+        # The slot is overwritten in place at a stable URL — never let a
+        # cache layer serve last bind's bytes as this bind's.
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/specs/{chart_id}/runs")

@@ -43,6 +43,23 @@ class FakeJwksClient:
         raise jwt.PyJWTError(f"unknown signing key: {kid!r}")
 
 
+class DelegatingStore:
+    """An ObjectStore test double that passes everything through to the
+    inner store; a subclass breaks exactly one method."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def put(self, key: str, source: Any) -> None:
+        self._inner.put(key, source)
+
+    def replace(self, key: str, source: Any) -> None:
+        self._inner.replace(key, source)
+
+    def open(self, key: str) -> Any:
+        return self._inner.open(key)
+
+
 class FakeUrlDescriber:
     """URL describes need the network (DuckDB httpfs), which tests never
     touch — the same reason `FakeJwksClient` stands in above. Upload
