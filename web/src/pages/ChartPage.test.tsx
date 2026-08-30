@@ -39,6 +39,8 @@ vi.mock("../lib/charts-api", async (importOriginal) => {
     deleteSpec: vi.fn(),
     deleteSource: vi.fn(),
     downloadWorkbook: vi.fn(),
+    listRevisions: vi.fn(),
+    revertSpec: vi.fn(),
   };
 });
 
@@ -49,7 +51,7 @@ vi.mock("../lib/flint", async (importOriginal) => {
 
 vi.mock("../lib/renderers", () => ({ drawChart: vi.fn() }));
 
-import { getSpec, listSources, previewBind, savedBind } from "../lib/charts-api";
+import { getSpec, listRevisions, listSources, previewBind, revertSpec, savedBind } from "../lib/charts-api";
 import { loadFlint } from "../lib/flint";
 
 afterEach(cleanup);
@@ -478,3 +480,92 @@ describe("ChartPage Excel download", () => {
     expect(screen.queryByRole("button", { name: "Download .xlsx" })).toBeNull();
   });
 });
+
+const SAVED_SPEC_REV2: SpecOut = {
+  ...SAVED_SPEC,
+  revision_id: "rev-2",
+  revision_number: 2,
+  content: {
+    chart_spec: {
+      chartType: "Bar Chart",
+      encodings: { x: { field: "a" }, y: { field: "a" } },
+    },
+  },
+  content_hash: "hash-2",
+  cache: {
+    revision_id: "rev-2",
+    source_id: SOURCE.id,
+    source_kind: "upload",
+    row_count: 3,
+    elapsed_ms: 41,
+    bound_at: "2026-08-29T00:00:00Z",
+  },
+};
+
+const REVERTED_TO_REV1: SpecOut = {
+  ...SAVED_SPEC,
+  cache: SAVED_SPEC_REV2.cache,
+};
+
+describe("ChartPage revert", () => {
+  beforeEach(() => {
+    vi.mocked(listSources).mockResolvedValue([SOURCE]);
+    vi.mocked(getSpec).mockResolvedValue(SAVED_SPEC_REV2);
+    vi.mocked(loadFlint).mockResolvedValue(HONEST_FLINT);
+    vi.mocked(savedBind).mockResolvedValue(honestEnvelope(3));
+    vi.mocked(listRevisions).mockResolvedValue([
+      {
+        revision_number: 2,
+        created_at: "2026-08-30T12:02:00Z",
+        content_hash: "hash-2",
+        authored_flint_version: "0.5.1",
+        current: true,
+      },
+      {
+        revision_number: 1,
+        created_at: "2026-08-30T12:01:00Z",
+        content_hash: "hash-1",
+        authored_flint_version: "0.5.1",
+        current: false,
+      },
+    ]);
+    vi.mocked(revertSpec).mockResolvedValue(REVERTED_TO_REV1);
+    vi.mocked(drawChart).mockClear();
+  });
+
+  it("repoints, empties the picture, and says Refresh to bind without binding", async () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={[`/charts/${SAVED_SPEC_REV2.id}`]}>
+        <Routes>
+          <Route path="/charts/:chartId" element={<ChartPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+    await waitFor(() => {
+      expect(container.querySelector(".chart-area")?.getAttribute("data-state")).toBe(
+        "rendered",
+      );
+    });
+    const bindsBefore = vi.mocked(savedBind).mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(await screen.findByRole("button", { name: "Revert to revision 1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Revert to revision 1" }));
+
+    expect(await screen.findByText("Refresh to bind")).toBeTruthy();
+    expect(container.querySelector(".chart-area")?.getAttribute("data-state")).toBe(
+      "stale",
+    );
+    expect(container.querySelector(".chart-toolbar .revision-chip")?.textContent).toBe(
+      "rev 1",
+    );
+    expect(vi.mocked(savedBind).mock.calls.length).toBe(bindsBefore);
+    expect(vi.mocked(revertSpec)).toHaveBeenCalledWith(getToken, SAVED_SPEC_REV2.id, 1);
+    // The editor now shows the reverted frame, not the one we moved off.
+    expect((screen.getByLabelText(/input frame/i) as HTMLTextAreaElement).value).toContain(
+      '"field": "b"',
+    );
+  });
+});
+

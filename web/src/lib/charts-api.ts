@@ -232,6 +232,31 @@ export async function deleteSource(getToken: GetToken, sourceId: string): Promis
   await request(getToken, "DELETE", `/api/sources/${sourceId}`);
 }
 
+export interface RevisionOut {
+  revision_number: number;
+  created_at: string;
+  content_hash: string;
+  authored_flint_version: string | null;
+  current: boolean;
+}
+
+export async function listRevisions(
+  getToken: GetToken,
+  chartId: string,
+): Promise<RevisionOut[]> {
+  return (await request(getToken, "GET", `/api/specs/${chartId}/revisions`)) as RevisionOut[];
+}
+
+export async function revertSpec(
+  getToken: GetToken,
+  chartId: string,
+  revisionNumber: number,
+): Promise<SpecOut> {
+  return (await request(getToken, "POST", `/api/specs/${chartId}/revert`, {
+    revision_number: revisionNumber,
+  })) as SpecOut;
+}
+
 /** The bound rows plus the Office.js the client compiled — one .xlsx,
  * written server-side by a plain writer. Empty rows are refused. */
 export async function downloadWorkbook(
