@@ -168,6 +168,22 @@ class RunOut(BaseModel):
     created_at: datetime
 
 
+class RevisionOut(BaseModel):
+    revision_number: int
+    created_at: datetime
+    content_hash: str
+    authored_flint_version: str | None
+    # From the pointer, never from max(revision_number) — after a revert
+    # the highest number is not current (ADR-0007 D3 erratum).
+    current: bool
+
+
+class RevertIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision_number: int
+
+
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
@@ -673,6 +689,61 @@ def read_cache(
         # cache layer serve last bind's bytes as this bind's.
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.get("/specs/{chart_id}/revisions")
+def list_revisions(
+    chart_id: uuid.UUID,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> list[RevisionOut]:
+    """Newest-first history. Current is the pointer, not the highest
+    number — after a revert those two disagree, and that is the point
+    (ADR-0007 D3)."""
+    chart = _owned_chart(db, chart_id, session.owner_id)
+    revisions = db.scalars(
+        select(SpecRevision)
+        .where(SpecRevision.chart_id == chart.id)
+        .order_by(SpecRevision.revision_number.desc())
+    ).all()
+    return [
+        RevisionOut(
+            revision_number=revision.revision_number,
+            created_at=revision.created_at,
+            content_hash=revision.content_hash,
+            authored_flint_version=revision.authored_flint_version,
+            current=revision.id == chart.current_revision_id,
+        )
+        for revision in revisions
+    ]
+
+
+@router.post("/specs/{chart_id}/revert")
+def revert_spec(
+    chart_id: uuid.UUID,
+    payload: RevertIn,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> SpecOut:
+    """Repoint `current_revision_id`. Writes no revision row, writes no
+    run, leaves every revision in place — a revert is itself revertible.
+    The cache pointer goes stale (*Refresh to bind*): a different
+    revision is a different frame (ADR-0007 D3 erratum)."""
+    chart = _owned_chart(db, chart_id, session.owner_id)
+    target = db.scalars(
+        select(SpecRevision).where(
+            SpecRevision.chart_id == chart.id,
+            SpecRevision.revision_number == payload.revision_number,
+        )
+    ).first()
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Revision not found"
+        )
+    chart.current_revision_id = target.id
+    chart.updated_at = datetime.now(UTC)
+    db.commit()
+    return _spec_out(db, chart)
 
 
 @router.get("/specs/{chart_id}/runs")

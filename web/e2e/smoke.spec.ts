@@ -1,7 +1,7 @@
 /** One smoke test (#77; ADR-0006 D15): sign in, open a saved chart, assert
- * a canvas rendered with the expected series count. This is the only
- * proof that the served Flint bundle plus a lazily-imported renderer
- * actually compiles and draws in a real browser.
+ * a canvas rendered with the expected series count. #9 adds exactly one
+ * assertion: revert to an earlier revision and the drawn series count
+ * changes. The suite does not grow a second life.
  */
 
 import path from "node:path";
@@ -18,6 +18,17 @@ const FRAME = `{
     "encodings": {
       "x": { "field": "quarter" },
       "y": { "field": "revenue" }
+    }
+  }
+}`;
+
+const GROUPED_FRAME = `{
+  "chart_spec": {
+    "chartType": "Grouped Bar Chart",
+    "encodings": {
+      "x": { "field": "quarter" },
+      "y": { "field": "revenue" },
+      "group": { "field": "quarter" }
     }
   }
 }`;
@@ -64,4 +75,21 @@ test("a saved chart draws a canvas with the expected series count", async ({ pag
   });
   await expect(page.locator(".chart-area canvas")).toBeVisible();
   await expect(page.locator(".chart-area")).toHaveAttribute("data-series-count", "1");
+
+  // A second revision that draws two series, then revert to the first.
+  await page.getByLabel(/input frame/i).fill(GROUPED_FRAME);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.locator(".chart-toolbar .revision-chip", { hasText: "rev 2" }).waitFor({
+    timeout: 15_000,
+  });
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.locator(".chart-area[data-series-count='2']").waitFor({ timeout: 60_000 });
+
+  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Revert to revision 1" }).click();
+  await page.getByText("Refresh to bind").waitFor();
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.locator(".chart-area")).toHaveAttribute("data-series-count", "1", {
+    timeout: 60_000,
+  });
 });

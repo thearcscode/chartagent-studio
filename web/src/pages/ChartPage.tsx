@@ -8,6 +8,9 @@
  * zero LLM. A successful refresh redraws from the new envelope through the
  * same client path as any bind; a failed refresh that carries `drifted`
  * opens the recovery table (#8) and leaves the previous picture untouched.
+ *
+ * History (#9): the list marks current from the pointer. Revert repoints
+ * and does not bind — the chart area says *Refresh to bind*.
  */
 
 import { useAuth, UserButton } from "@clerk/react";
@@ -16,6 +19,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { BackendPicker } from "../components/BackendPicker";
 import { DriftPanel } from "../components/DriftPanel";
+import { RevisionList } from "../components/RevisionList";
 import { referencedNames, type DriftedField } from "../lib/drift";
 import {
   ApiError,
@@ -24,21 +28,24 @@ import {
   deleteSpec,
   downloadWorkbook,
   getSpec,
+  listRevisions,
   listSources,
   previewBind,
   registerUrlSource,
+  revertSpec,
   savedBind,
   updateSpec,
   uploadSource,
   type AdvisoryOut,
   type BindResponse,
+  type RevisionOut,
   type SourceOut,
   type SpecOut,
 } from "../lib/charts-api";
 import { BACKEND_LABELS, type Backend } from "../lib/backends";
 import { compileEnvelope, compiledSeriesCount } from "../lib/compile";
 import { excelGate } from "../lib/excel";
-import { loadFlint, type FlintGlobal } from "../lib/flint";
+import { BUILT_AGAINST, loadFlint, type FlintGlobal } from "../lib/flint";
 import { drawChart, type DrawCleanup } from "../lib/renderers";
 import { getStoredTheme, setTheme, type Theme } from "../theme";
 
@@ -56,6 +63,7 @@ type ChartArea =
   | { kind: "idle" }
   | { kind: "working" }
   | { kind: "rendered"; pointCount: number; seriesCount: number }
+  | { kind: "stale" }
   | { kind: "amber"; reason: string }
   | { kind: "error"; reason: string };
 
@@ -142,6 +150,9 @@ export function ChartPage() {
   const [saving, setSaving] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [revisions, setRevisions] = useState<RevisionOut[] | null>(null);
+  const [reverting, setReverting] = useState(false);
 
   const chartRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<DrawCleanup | null>(null);
@@ -375,6 +386,51 @@ export function ChartPage() {
     }
   }, [backend, drawEnvelope, editorDiffersFrom, getToken, sourceId, spec]);
 
+  const loadRevisions = useCallback(
+    async (chartId: string) => {
+      try {
+        setRevisions(await listRevisions(getToken, chartId));
+      } catch (error) {
+        setFormErrors(toErrorLines(error));
+      }
+    },
+    [getToken],
+  );
+
+  async function onToggleHistory() {
+    if (!spec) return;
+    if (historyOpen) {
+      setHistoryOpen(false);
+      return;
+    }
+    setHistoryOpen(true);
+    await loadRevisions(spec.id);
+  }
+
+  async function onRevert(revisionNumber: number) {
+    if (!spec) return;
+    setReverting(true);
+    setFormErrors([]);
+    try {
+      const reverted = await revertSpec(getToken, spec.id, revisionNumber);
+      setSpec(reverted);
+      setTitle(reverted.title);
+      updateEditorText(JSON.stringify(reverted.content, null, 2));
+      emptyChartArea();
+      setLastBind(null);
+      setServerWarnings([]);
+      setCompileWarnings([]);
+      setExcelReady(null);
+      setRefreshError(null);
+      setArea({ kind: "stale" });
+      await loadRevisions(reverted.id);
+    } catch (error) {
+      setFormErrors(toErrorLines(error));
+    } finally {
+      setReverting(false);
+    }
+  }
+
   // Initial load: sources, the Flint pin (fail loud on mismatch), and — for
   // a saved chart — the spec, then the user-initiated open bind.
   useEffect(() => {
@@ -485,6 +541,9 @@ export function ChartPage() {
       if (!spec) {
         navigate(`/charts/${saved.id}`, { replace: true });
       }
+      if (historyOpen) {
+        await loadRevisions(saved.id);
+      }
     } catch (error) {
       setFormErrors(toErrorLines(error));
     } finally {
@@ -571,7 +630,7 @@ export function ChartPage() {
 
   const working = area.kind === "working";
   // One "a bind is in flight" flag for every control that would start one.
-  const busy = working || refreshing;
+  const busy = working || refreshing || reverting;
 
   return (
     <div className="app-shell">
@@ -598,6 +657,17 @@ export function ChartPage() {
           aria-label="Chart title"
         />
         {spec ? <span className="revision-chip">rev {spec.revision_number}</span> : null}
+        {spec ? (
+          <button
+            type="button"
+            className="ghost-button"
+            aria-pressed={historyOpen}
+            disabled={busy || saving}
+            onClick={() => void onToggleHistory()}
+          >
+            History
+          </button>
+        ) : null}
         <select
           className="source-select"
           value={sourceId ?? ""}
@@ -743,6 +813,21 @@ export function ChartPage() {
               ))}
             </div>
           ) : null}
+          {historyOpen ? (
+            <div className="history-pane">
+              <p className="pane-label">Revisions</p>
+              {revisions === null ? (
+                <p className="muted">Loading history…</p>
+              ) : (
+                <RevisionList
+                  revisions={revisions}
+                  servedFlintVersion={BUILT_AGAINST.flintVersion}
+                  onRevert={(n) => void onRevert(n)}
+                  reverting={reverting}
+                />
+              )}
+            </div>
+          ) : null}
         </section>
 
         <section className="stage-pane">
@@ -776,6 +861,15 @@ export function ChartPage() {
               <p className="area-note">Bind to draw.</p>
             ) : null}
             {area.kind === "working" ? <p className="area-note">Binding…</p> : null}
+            {area.kind === "stale" ? (
+              <div className="area-note">
+                <strong>Refresh to bind</strong>
+                <p>
+                  The cache predates this revision — a new chart with old rows is a
+                  wrong chart.
+                </p>
+              </div>
+            ) : null}
             {area.kind === "amber" ? (
               <div className="area-note amber-note">
                 <strong>Won’t render here.</strong>

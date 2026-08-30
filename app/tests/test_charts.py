@@ -518,6 +518,20 @@ def test_chart_routes_never_cross_an_owner_boundary(
         db_client.get(f"/api/specs/{created['id']}/runs", headers=other).status_code
         == 404
     )
+    assert (
+        db_client.get(
+            f"/api/specs/{created['id']}/revisions", headers=other
+        ).status_code
+        == 404
+    )
+    assert (
+        db_client.post(
+            f"/api/specs/{created['id']}/revert",
+            json={"revision_number": 1},
+            headers=other,
+        ).status_code
+        == 404
+    )
     # Another owner's source cannot be named in a save or a bind either.
     assert (
         _create_spec(db_client, signing, source_id, sub="user_other").status_code
@@ -539,5 +553,12 @@ def test_chart_routes_require_auth(db_client: TestClient) -> None:
     assert (
         db_client.post(f"/api/specs/{some_id}/bind", json={"backend": "echarts"})
         .status_code
+        == 401
+    )
+    assert db_client.get(f"/api/specs/{some_id}/revisions").status_code == 401
+    assert (
+        db_client.post(
+            f"/api/specs/{some_id}/revert", json={"revision_number": 1}
+        ).status_code
         == 401
     )

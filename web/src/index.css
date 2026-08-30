@@ -653,3 +653,80 @@ code,
   border-radius: 10px;
   overflow: hidden;
 }
+
+/* --- Revision history (#9) -------------------------------------------- */
+
+.history-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.revision-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.revision-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.revision-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.revision-row-id {
+  font:
+    500 12.5px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--ink);
+}
+
+.revision-row-time {
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--faint);
+}
+
+.revision-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.revision-row-pin {
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--muted);
+}
+
+.revision-row-note {
+  font:
+    400 11px "IBM Plex Sans",
+    ui-sans-serif,
+    sans-serif;
+  color: var(--amber);
+}
+
