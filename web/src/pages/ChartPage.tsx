@@ -10,7 +10,8 @@
  * opens the recovery table (#8) and leaves the previous picture untouched.
  *
  * History (#9): the list marks current from the pointer. Revert repoints
- * and does not bind — the chart area says *Refresh to bind*.
+ * and does not bind — the chart area says *Refresh to bind*. Diff (#10)
+ * is server-side over canonical_json; the user picks any two revisions.
  */
 
 import { useAuth, UserButton } from "@clerk/react";
@@ -19,6 +20,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { BackendPicker } from "../components/BackendPicker";
 import { DriftPanel } from "../components/DriftPanel";
+import { RevisionDiff } from "../components/RevisionDiff";
 import { RevisionList } from "../components/RevisionList";
 import { referencedNames, type DriftedField } from "../lib/drift";
 import {
@@ -26,6 +28,7 @@ import {
   createSpec,
   deleteSource,
   deleteSpec,
+  diffRevisions,
   downloadWorkbook,
   getSpec,
   listRevisions,
@@ -38,6 +41,7 @@ import {
   uploadSource,
   type AdvisoryOut,
   type BindResponse,
+  type DiffOut,
   type RevisionOut,
   type SourceOut,
   type SpecOut,
@@ -46,6 +50,7 @@ import { BACKEND_LABELS, type Backend } from "../lib/backends";
 import { compileEnvelope, compiledSeriesCount } from "../lib/compile";
 import { excelGate } from "../lib/excel";
 import { BUILT_AGAINST, loadFlint, type FlintGlobal } from "../lib/flint";
+import { defaultDiffPair } from "../lib/revisions";
 import { drawChart, type DrawCleanup } from "../lib/renderers";
 import { getStoredTheme, setTheme, type Theme } from "../theme";
 
@@ -153,6 +158,9 @@ export function ChartPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [revisions, setRevisions] = useState<RevisionOut[] | null>(null);
   const [reverting, setReverting] = useState(false);
+  const [diffFrom, setDiffFrom] = useState<number | null>(null);
+  const [diffTo, setDiffTo] = useState<number | null>(null);
+  const [diff, setDiff] = useState<DiffOut | null>(null);
 
   const chartRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<DrawCleanup | null>(null);
@@ -389,13 +397,37 @@ export function ChartPage() {
   const loadRevisions = useCallback(
     async (chartId: string) => {
       try {
-        setRevisions(await listRevisions(getToken, chartId));
+        const rows = await listRevisions(getToken, chartId);
+        setRevisions(rows);
+        const pair = defaultDiffPair(rows);
+        if (pair === null) {
+          setDiff(null);
+          setDiffFrom(null);
+          setDiffTo(null);
+          return;
+        }
+        const [from, to] = pair;
+        setDiffFrom(from);
+        setDiffTo(to);
+        setDiff(await diffRevisions(getToken, chartId, from, to));
       } catch (error) {
         setFormErrors(toErrorLines(error));
       }
     },
     [getToken],
   );
+
+  async function onCompare(from: number, to: number) {
+    if (!spec) return;
+    try {
+      const next = await diffRevisions(getToken, spec.id, from, to);
+      setDiffFrom(from);
+      setDiffTo(to);
+      setDiff(next);
+    } catch (error) {
+      setFormErrors(toErrorLines(error));
+    }
+  }
 
   async function onToggleHistory() {
     if (!spec) return;
@@ -819,12 +851,23 @@ export function ChartPage() {
               {revisions === null ? (
                 <p className="muted">Loading history…</p>
               ) : (
-                <RevisionList
-                  revisions={revisions}
-                  servedFlintVersion={BUILT_AGAINST.flintVersion}
-                  onRevert={(n) => void onRevert(n)}
-                  reverting={reverting}
-                />
+                <>
+                  <RevisionList
+                    revisions={revisions}
+                    servedFlintVersion={BUILT_AGAINST.flintVersion}
+                    onRevert={(n) => void onRevert(n)}
+                    reverting={reverting}
+                  />
+                  {diffFrom !== null && diffTo !== null ? (
+                    <RevisionDiff
+                      revisions={revisions}
+                      fromRevision={diffFrom}
+                      toRevision={diffTo}
+                      diff={diff}
+                      onCompare={(from, to) => void onCompare(from, to)}
+                    />
+                  ) : null}
+                </>
               )}
             </div>
           ) : null}

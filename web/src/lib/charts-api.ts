@@ -257,6 +257,33 @@ export async function revertSpec(
   })) as SpecOut;
 }
 
+export interface DiffHunk {
+  op: "added" | "removed" | "changed";
+  path: string;
+  from_value: unknown;
+  to_value: unknown;
+}
+
+export interface DiffOut {
+  from_revision: number;
+  to_revision: number;
+  hunks: DiffHunk[];
+  source_schema_only: boolean;
+}
+
+export async function diffRevisions(
+  getToken: GetToken,
+  chartId: string,
+  fromRevision: number,
+  toRevision: number,
+): Promise<DiffOut> {
+  return (await request(
+    getToken,
+    "GET",
+    `/api/specs/${chartId}/revisions/${fromRevision}/diff/${toRevision}`,
+  )) as DiffOut;
+}
+
 /** The bound rows plus the Office.js the client compiled — one .xlsx,
  * written server-side by a plain writer. Empty rows are refused. */
 export async function downloadWorkbook(
