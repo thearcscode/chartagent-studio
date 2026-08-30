@@ -81,3 +81,46 @@ export function driftTable({ drifted, snapshot, referenced }: DriftTableInput): 
   }
   return rows;
 }
+
+/** The planning baseline's buckets, already computed by the library and
+ * stored on the frame. Used to filter candidate columns for a remap. */
+export function baselineBuckets(content: Record<string, unknown>): Record<string, string> {
+  const xc = content.x_chartagent;
+  if (typeof xc !== "object" || xc === null) return {};
+  const schema = (xc as Record<string, unknown>).source_schema;
+  if (typeof schema !== "object" || schema === null) return {};
+  const buckets: Record<string, string> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (typeof value === "string") buckets[key] = value;
+  }
+  return buckets;
+}
+
+/** Candidate columns for a dropped field: matching bucket only. A `BLOB`
+ * (`other`) is never offered for a `number` measure. */
+export function candidateColumns(
+  expectedBucket: string | undefined,
+  snapshot: SnapshotColumn[],
+): SnapshotColumn[] {
+  // No baseline bucket means we cannot match — offering the whole snapshot
+  // would include a BLOB for a measure. Filter is closed, not open.
+  if (expectedBucket === undefined) return [];
+  return snapshot.filter((column) => column.bucket === expectedBucket);
+}
+
+export function mappingComplete(
+  drifted: DriftedField[],
+  mapping: Record<string, string>,
+): boolean {
+  const dropped = drifted.filter((field) => field.kind === "dropped");
+  if (dropped.length === 0) return false;
+  return dropped.every((field) => Boolean(mapping[field.name]));
+}
+
+export function hasDropped(drifted: DriftedField[]): boolean {
+  return drifted.some((field) => field.kind === "dropped");
+}
+
+export function hasRetyped(drifted: DriftedField[]): boolean {
+  return drifted.some((field) => field.kind === "retyped");
+}

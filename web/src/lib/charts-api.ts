@@ -11,6 +11,9 @@ type GetToken = () => Promise<string | null>;
 export interface SnapshotColumn {
   name: string;
   type: string;
+  /** The library's coarse bucket, derived from `type` at the source
+   * boundary — Studio does not compute heads of its own. */
+  bucket?: string;
 }
 
 export interface SourceOut {
@@ -282,6 +285,27 @@ export async function diffRevisions(
     "GET",
     `/api/specs/${chartId}/revisions/${fromRevision}/diff/${toRevision}`,
   )) as DiffOut;
+}
+
+export interface RemapPreviewOut extends DiffOut {
+  content: Record<string, unknown>;
+}
+
+/** The candidate patch for a dropped-column remap. Writes nothing. */
+export async function remapPreview(
+  getToken: GetToken,
+  chartId: string,
+  payload: {
+    mapping: Record<string, string>;
+    drifted: Array<{ name: string; kind: string; expected: string | null; found: string | null }>;
+  },
+): Promise<RemapPreviewOut> {
+  return (await request(
+    getToken,
+    "POST",
+    `/api/specs/${chartId}/remap-preview`,
+    payload,
+  )) as RemapPreviewOut;
 }
 
 /** The bound rows plus the Office.js the client compiled — one .xlsx,

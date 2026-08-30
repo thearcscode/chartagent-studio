@@ -52,6 +52,7 @@ from studio.errors import RowCapExceededError, error_code_for
 from studio.ids import new_id
 from studio.models import BindCache, Chart, DataSource, Run, SpecRevision
 from studio.observe import log_bind
+from studio.remap import RemapRefusedError, apply_mapping, validate_mapping
 from studio.storage import ObjectStore, drop
 
 router = APIRouter()
@@ -199,6 +200,33 @@ class DiffOut(BaseModel):
     # True when the only difference is `x_chartagent.source_schema` (ADR-0007
     # D8 erratum): the ordinary shape of a chart's first honest save.
     source_schema_only: bool
+
+
+class DriftedIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    kind: str
+    expected: str | None = None
+    found: str | None = None
+
+
+class RemapPreviewIn(BaseModel):
+    """A mapping of dropped names onto snapshot columns, plus the drifted
+    list the failed bind already reported — the preview is a pure function
+    of those and the current revision. It writes nothing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mapping: dict[str, str]
+    drifted: list[DriftedIn]
+
+
+class RemapPreviewOut(DiffOut):
+    """The #10 diff of the candidate against the current revision, plus
+    the candidate itself so approve can run the ordinary save path."""
+
+    content: dict[str, Any]
 
 
 # --------------------------------------------------------------------------
@@ -758,6 +786,36 @@ def diff_revisions(
         to_revision=to_rev,
         hunks=[HunkOut.model_validate(hunk) for hunk in hunks],
         source_schema_only=source_schema_only,
+    )
+
+
+@router.post("/specs/{chart_id}/remap-preview")
+def remap_preview(
+    chart_id: uuid.UUID,
+    payload: RemapPreviewIn,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> RemapPreviewOut:
+    """The candidate patch for a dropped-column remap. Pure: two documents
+    (the current revision and the rewritten candidate), no writes. A retype
+    or a partial mapping is refused rather than saved as a half-repair."""
+    chart = _owned_chart(db, chart_id, session.owner_id)
+    revision = _current_revision(db, chart)
+    drifted = [field.model_dump() for field in payload.drifted]
+    try:
+        validate_mapping(drifted, payload.mapping)
+    except RemapRefusedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from None
+    candidate = apply_mapping(revision.content, payload.mapping)
+    hunks, source_schema_only = diff_documents(revision.content, candidate)
+    return RemapPreviewOut(
+        from_revision=revision.revision_number,
+        to_revision=revision.revision_number + 1,
+        hunks=[HunkOut.model_validate(hunk) for hunk in hunks],
+        source_schema_only=source_schema_only,
+        content=candidate,
     )
 
 

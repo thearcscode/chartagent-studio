@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { driftTable, referencedNames } from "./drift";
+import { candidateColumns, driftTable, mappingComplete, referencedNames } from "./drift";
 
 const DROPPED = {
   name: "a",
@@ -105,5 +105,39 @@ describe("referencedNames", () => {
         [DROPPED],
       ),
     ).toEqual(["a", "b"]);
+  });
+});
+
+describe("candidateColumns", () => {
+  it("offers a dropped number field only number columns and never a BLOB", () => {
+    const columns = candidateColumns("number", [
+      { name: "revenue", type: "BIGINT", bucket: "number" },
+      { name: "payload", type: "BLOB", bucket: "other" },
+      { name: "label", type: "VARCHAR", bucket: "string" },
+    ]);
+    expect(columns.map((column) => column.name)).toEqual(["revenue"]);
+    expect(columns.some((column) => column.type === "BLOB")).toBe(false);
+  });
+
+  it("offers nothing when the baseline has no bucket for the field", () => {
+    expect(
+      candidateColumns(undefined, [
+        { name: "revenue", type: "BIGINT", bucket: "number" },
+        { name: "payload", type: "BLOB", bucket: "other" },
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("mappingComplete", () => {
+  it("blocks the patch step while a dropped field is unmapped", () => {
+    expect(mappingComplete([DROPPED], {})).toBe(false);
+    expect(mappingComplete([DROPPED], { a: "" })).toBe(false);
+    expect(mappingComplete([DROPPED], { a: "c" })).toBe(true);
+  });
+
+  it("does not treat a retype as a completable remap", () => {
+    expect(mappingComplete([RETYPED], {})).toBe(false);
+    expect(mappingComplete([RETYPED], { churn_rate: "churn_rate" })).toBe(false);
   });
 });
