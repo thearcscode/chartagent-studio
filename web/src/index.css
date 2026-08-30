@@ -380,6 +380,121 @@ code,
   margin: 6px 0 0;
 }
 
+/* Drift recovery step 1 (#8) — 5b's table, Studio chrome. */
+.drift-panel {
+  width: 660px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.drift-banner {
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drift-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drift-code {
+  font:
+    500 11.5px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--red);
+}
+
+.drift-cost {
+  margin-left: auto;
+  font:
+    400 10.5px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--faint);
+}
+
+.drift-message {
+  margin: 0;
+  color: var(--ink);
+}
+
+.drift-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+}
+
+.drift-table th {
+  text-align: left;
+  font:
+    500 10px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: var(--panel);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.drift-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-faint);
+  color: var(--ink);
+}
+
+.drift-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.drift-table td[data-status="dropped"],
+.drift-table td[data-status="retyped"] {
+  color: var(--red);
+}
+
+.drift-table td[data-status="added · ignored"] {
+  color: var(--faint);
+}
+
+.drift-claim {
+  margin: 0;
+  font:
+    400 11px/1.6 "IBM Plex Sans",
+    ui-sans-serif,
+    sans-serif;
+  color: var(--faint);
+}
+
+.drift-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.retype-unchecked {
+  width: 660px;
+  margin: 0;
+  font:
+    400 11px/1.5 "IBM Plex Sans",
+    ui-sans-serif,
+    sans-serif;
+  color: var(--amber);
+}
+
 .stage-pane {
   display: flex;
   flex-direction: column;
