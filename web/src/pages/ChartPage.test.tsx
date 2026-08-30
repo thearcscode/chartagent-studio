@@ -41,6 +41,7 @@ vi.mock("../lib/charts-api", async (importOriginal) => {
     downloadWorkbook: vi.fn(),
     listRevisions: vi.fn(),
     revertSpec: vi.fn(),
+    remapPreview: vi.fn(),
     diffRevisions: vi.fn(),
   };
 });
@@ -52,7 +53,7 @@ vi.mock("../lib/flint", async (importOriginal) => {
 
 vi.mock("../lib/renderers", () => ({ drawChart: vi.fn() }));
 
-import { diffRevisions, getSpec, listRevisions, listSources, previewBind, revertSpec, savedBind } from "../lib/charts-api";
+import { diffRevisions, getSpec, listRevisions, listSources, previewBind, remapPreview, revertSpec, savedBind, updateSpec } from "../lib/charts-api";
 import { loadFlint } from "../lib/flint";
 
 afterEach(cleanup);
@@ -66,8 +67,8 @@ const SOURCE: SourceOut = {
   // The source the failed refresh is pointed at — `a` is gone, `c` is new.
   schema_snapshot: {
     columns: [
-      { name: "c", type: "BIGINT" },
-      { name: "b", type: "VARCHAR" },
+      { name: "c", type: "BIGINT", bucket: "number" },
+      { name: "b", type: "VARCHAR", bucket: "string" },
     ],
   },
   created_at: "2026-08-29T00:00:00Z",
@@ -202,6 +203,7 @@ const SAVED_SPEC: SpecOut = {
       chartType: "Bar Chart",
       encodings: { x: { field: "b" }, y: { field: "a" } },
     },
+    x_chartagent: { source_schema: { a: "number", b: "string" } },
   },
   content_hash: "hash-1",
   authored_flint_version: "0.5.1",
@@ -312,13 +314,13 @@ describe("ChartPage refresh", () => {
     expect(screen.getByRole("columnheader", { name: /status/i })).toBeTruthy();
     expect(screen.getByText("dropped")).toBeTruthy();
     expect(screen.getByText("added · ignored")).toBeTruthy();
-    expect(screen.getByText("c, b")).toBeTruthy();
+    expect(screen.getByText("c")).toBeTruthy();
     // A drop plus an extra snapshot column is not a rename.
     expect(screen.queryByText("renamed")).toBeNull();
     expect(screen.queryByRole("button", { name: /regenerate/i })).toBeNull();
     expect(screen.queryByText(/schedule/i)).toBeNull();
     expect(screen.queryByText(/light mode/i)).toBeNull();
-    expect(screen.queryByRole("button", { name: /remap/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Remap dropped columns" })).toBeTruthy();
 
     // The previous picture is untouched: no redraw, no emptied area,
     // the cost line still describes the bind that produced the picture.
@@ -344,6 +346,8 @@ describe("ChartPage refresh", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
     expect(await screen.findByText("retyped")).toBeTruthy();
+    expect(screen.getByText(/raw_sql/)).toBeTruthy();
+    expect(screen.getByText(/fix the data/)).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: /remap|column/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /remap/i })).toBeNull();
   });
@@ -374,6 +378,92 @@ describe("ChartPage refresh", () => {
       "rendered",
     );
     expect(screen.getByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+  });
+});
+
+describe("ChartPage drift remap", () => {
+  beforeEach(() => {
+    vi.mocked(listSources).mockResolvedValue([SOURCE]);
+    vi.mocked(getSpec).mockResolvedValue(SAVED_SPEC);
+    vi.mocked(loadFlint).mockResolvedValue(HONEST_FLINT);
+    vi.mocked(savedBind).mockResolvedValue(honestEnvelope(3));
+    vi.mocked(drawChart).mockClear();
+  });
+
+  it("previews the patch then saves the remapped frame through the ordinary save path", async () => {
+    const { container } = renderSavedChart();
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+    const drawsBefore = vi.mocked(drawChart).mock.calls.length;
+
+    vi.mocked(savedBind).mockRejectedValueOnce(
+      new ApiError(409, {
+        error: "schema_drift",
+        message: "source column(s) dropped: a",
+        stage: "source",
+        drifted: [{ name: "a", kind: "dropped", expected: "a", found: null }],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("SchemaDriftError")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remap dropped columns" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Remap a" }), {
+      target: { value: "c" },
+    });
+
+    const candidate = {
+      chart_spec: {
+        chartType: "Bar Chart",
+        encodings: { x: { field: "b" }, y: { field: "c" } },
+      },
+    };
+    vi.mocked(remapPreview).mockResolvedValueOnce({
+      from_revision: 1,
+      to_revision: 2,
+      source_schema_only: false,
+      hunks: [
+        {
+          op: "changed",
+          path: "/chart_spec/encodings/y/field",
+          from_value: "a",
+          to_value: "c",
+        },
+      ],
+      content: candidate,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview patch" }));
+    expect(await screen.findByText("spec patch · 1 hunk · no model call")).toBeTruthy();
+    expect(screen.getByText("/chart_spec/encodings/y/field")).toBeTruthy();
+    expect(vi.mocked(remapPreview).mock.calls.at(-1)?.[2]).toEqual({
+      mapping: { a: "c" },
+      drifted: [{ name: "a", kind: "dropped", expected: "a", found: null }],
+    });
+    expect(container.querySelector(".chart-area")?.getAttribute("data-state")).toBe(
+      "rendered",
+    );
+
+    vi.mocked(previewBind).mockResolvedValueOnce(honestEnvelope(2));
+    vi.mocked(updateSpec).mockResolvedValueOnce({
+      ...SAVED_SPEC,
+      revision_number: 2,
+      revision_id: "rev-2",
+      content: candidate,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Approve and save" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(updateSpec)).toHaveBeenCalled();
+    });
+    expect(vi.mocked(previewBind).mock.calls.at(-1)?.[1]).toEqual({
+      content: candidate,
+      source_id: SOURCE.id,
+      backend: "echarts",
+    });
+    expect(screen.queryByText("SchemaDriftError")).toBeNull();
+    expect(screen.getByText("rev 2")).toBeTruthy();
+    await waitFor(() => {
+      expect(vi.mocked(drawChart).mock.calls.length).toBe(drawsBefore + 1);
+    });
   });
 });
 

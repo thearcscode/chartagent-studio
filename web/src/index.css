@@ -480,9 +480,96 @@ code,
   color: var(--faint);
 }
 
+.drift-step {
+  margin: 0;
+  font:
+    400 10.5px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--faint);
+}
+
+.drift-retype {
+  margin: 0;
+  font:
+    400 11px/1.6 "IBM Plex Sans",
+    ui-sans-serif,
+    sans-serif;
+  color: var(--amber);
+}
+
+.drift-remap-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.drift-remap-name {
+  width: 130px;
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--ink);
+}
+
+.drift-remap-arrow {
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--faint);
+}
+
+.drift-remap-select {
+  flex: 1;
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--ink);
+  background: var(--app);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 11px;
+}
+
+.drift-patch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--rail);
+}
+
+.drift-patch-cost {
+  margin: 0;
+  font:
+    400 10.5px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--faint);
+}
+
+.drift-error {
+  margin: 0;
+  font:
+    400 11px/1.5 "IBM Plex Sans",
+    ui-sans-serif,
+    sans-serif;
+  color: var(--red);
+}
+
 .drift-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
 }
 
 .retype-unchecked {

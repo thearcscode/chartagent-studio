@@ -61,8 +61,8 @@ def test_upload_csv_registers_source(
     # The source's schema at registration, as DuckDB reported it.
     assert body["schema_snapshot"] == {
         "columns": [
-            {"name": "a", "type": "BIGINT"},
-            {"name": "b", "type": "VARCHAR"},
+            {"name": "a", "type": "BIGINT", "bucket": "number"},
+            {"name": "b", "type": "VARCHAR", "bucket": "string"},
         ]
     }
 
@@ -88,8 +88,8 @@ def test_upload_parquet_registers_source(
     assert body["object_key"].endswith(".parquet")
     assert body["schema_snapshot"] == {
         "columns": [
-            {"name": "x", "type": "BIGINT"},
-            {"name": "name", "type": "VARCHAR"},
+            {"name": "x", "type": "BIGINT", "bucket": "number"},
+            {"name": "name", "type": "VARCHAR", "bucket": "string"},
         ]
     }
 

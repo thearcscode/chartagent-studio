@@ -5,10 +5,7 @@
  */
 
 import type { DiffOut, RevisionOut } from "../lib/charts-api";
-
-function formatValue(value: unknown): string {
-  return JSON.stringify(value);
-}
+import { HunkList } from "./HunkList";
 
 export function RevisionDiff({
   revisions,
@@ -69,27 +66,7 @@ export function RevisionDiff({
       {diff && diff.hunks.length === 0 ? (
         <p className="revision-diff-empty">Identical revisions — zero hunks.</p>
       ) : null}
-      {diff ? (
-        <ol className="revision-diff-hunks">
-          {diff.hunks.map((hunk) => (
-            <li key={`${hunk.op}:${hunk.path}`}>
-              <span className="revision-diff-path">{hunk.path}</span>
-              {hunk.op === "added" ? (
-                <span className="revision-diff-to">+ {formatValue(hunk.to_value)}</span>
-              ) : null}
-              {hunk.op === "removed" ? (
-                <span className="revision-diff-from">− {formatValue(hunk.from_value)}</span>
-              ) : null}
-              {hunk.op === "changed" ? (
-                <>
-                  <span className="revision-diff-from">− {formatValue(hunk.from_value)}</span>
-                  <span className="revision-diff-to">+ {formatValue(hunk.to_value)}</span>
-                </>
-              ) : null}
-            </li>
-          ))}
-        </ol>
-      ) : null}
+      {diff ? <HunkList hunks={diff.hunks} /> : null}
     </div>
   );
 }

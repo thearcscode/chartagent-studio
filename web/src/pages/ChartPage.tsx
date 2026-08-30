@@ -8,6 +8,8 @@
  * zero LLM. A successful refresh redraws from the new envelope through the
  * same client path as any bind; a failed refresh that carries `drifted`
  * opens the recovery table (#8) and leaves the previous picture untouched.
+ * Remap (#11) is a spec edit the user approves before it is saved: the
+ * preview writes nothing; approving is an ordinary save.
  *
  * History (#9): the list marks current from the pointer. Revert repoints
  * and does not bind — the chart area says *Refresh to bind*. Diff (#10)
@@ -22,7 +24,7 @@ import { BackendPicker } from "../components/BackendPicker";
 import { DriftPanel } from "../components/DriftPanel";
 import { RevisionDiff } from "../components/RevisionDiff";
 import { RevisionList } from "../components/RevisionList";
-import { referencedNames, type DriftedField } from "../lib/drift";
+import { referencedNames, baselineBuckets, type DriftedField } from "../lib/drift";
 import {
   ApiError,
   createSpec,
@@ -36,6 +38,7 @@ import {
   previewBind,
   registerUrlSource,
   revertSpec,
+  remapPreview,
   savedBind,
   updateSpec,
   uploadSource,
@@ -883,6 +886,42 @@ export function ChartPage() {
                   .columns ?? []
               }
               referenced={referencedNames(spec.content, refreshError.drifted)}
+              baseline={baselineBuckets(spec.content)}
+              onPreview={async (mapping) =>
+                remapPreview(getToken, spec.id, {
+                  mapping,
+                  drifted: refreshError.drifted,
+                })
+              }
+              onApprove={async (content) => {
+                if (!sourceId) {
+                  throw new Error("Pick a source before approving the repair.");
+                }
+                const envelope = await previewBind(getToken, {
+                  content,
+                  source_id: sourceId,
+                  backend,
+                });
+                const saved = await updateSpec(getToken, spec.id, {
+                  content,
+                  source_id: sourceId,
+                  bind: {
+                    backend,
+                    content,
+                    rows: envelope.input.data.values,
+                    elapsed_ms: Math.round(envelope.elapsed * 1000),
+                    source_schema: envelope.source_schema,
+                  },
+                });
+                setSpec(saved);
+                setTitle(saved.title);
+                updateEditorText(JSON.stringify(saved.content, null, 2));
+                setRefreshError(null);
+                if (historyOpen) {
+                  await loadRevisions(saved.id);
+                }
+                await drawEnvelope(envelope, backend, saved.content);
+              }}
               onDismiss={() => setRefreshError(null)}
             />
           ) : null}

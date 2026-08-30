@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlparse
 
+from chartagent.transform.schema import bucket_for
 from fastapi import (
     APIRouter,
     Depends,
@@ -26,7 +27,7 @@ from fastapi import (
     status,
 )
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
@@ -120,6 +121,24 @@ class SourceOut(BaseModel):
     url: str | None
     schema_snapshot: dict[str, Any]
     created_at: datetime
+
+    @field_validator("schema_snapshot")
+    @classmethod
+    def _annotate_buckets(cls, snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Carry the library's buckets on the wire. Stored snapshot stays
+        DuckDB reported types; Studio does not persist a second table or
+        invent heads (ADR-0010 D5). `bucket_for` is the library's mapper —
+        the public seam has no equivalent verb."""
+        columns = snapshot.get("columns")
+        if not isinstance(columns, list):
+            return snapshot
+        annotated: list[Any] = []
+        for column in columns:
+            if not isinstance(column, dict) or "type" not in column:
+                annotated.append(column)
+                continue
+            annotated.append({**column, "bucket": bucket_for(str(column["type"]))})
+        return {**snapshot, "columns": annotated}
 
 
 router = APIRouter(route_class=_UploadSizeGuardRoute)
