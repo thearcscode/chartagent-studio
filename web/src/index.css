@@ -730,3 +730,111 @@ code,
   color: var(--amber);
 }
 
+.revision-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--rail);
+}
+
+.revision-diff-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.revision-diff-title {
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--ink);
+}
+
+.revision-diff-count {
+  margin-left: auto;
+  font:
+    400 10px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--faint);
+}
+
+.revision-diff-picks {
+  display: flex;
+  gap: 10px;
+}
+
+.revision-diff-picks label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font:
+    400 10px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--faint);
+}
+
+.revision-diff-picks select {
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.revision-diff-label {
+  margin: 0;
+  font:
+    400 11px "IBM Plex Sans",
+    ui-sans-serif,
+    sans-serif;
+  color: var(--amber);
+}
+
+.revision-diff-empty {
+  margin: 0;
+  font:
+    400 11px "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--faint);
+}
+
+.revision-diff-hunks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font:
+    400 10.5px/1.7 "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  color: var(--muted);
+}
+
+.revision-diff-path {
+  display: block;
+  color: var(--faint);
+}
+
+.revision-diff-from {
+  display: block;
+  color: var(--red);
+}
+
+.revision-diff-to {
+  display: block;
+  color: var(--teal);
+}
+

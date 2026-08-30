@@ -47,6 +47,7 @@ from studio.auth import Session as AuthSession
 from studio.auth import get_session
 from studio.config import Settings
 from studio.db import get_db
+from studio.diff import diff_documents, without_source_schema
 from studio.errors import RowCapExceededError, error_code_for
 from studio.ids import new_id
 from studio.models import BindCache, Chart, DataSource, Run, SpecRevision
@@ -184,6 +185,22 @@ class RevertIn(BaseModel):
     revision_number: int
 
 
+class HunkOut(BaseModel):
+    op: Literal["added", "removed", "changed"]
+    path: str
+    from_value: Any = None
+    to_value: Any = None
+
+
+class DiffOut(BaseModel):
+    from_revision: int
+    to_revision: int
+    hunks: list[HunkOut]
+    # True when the only difference is `x_chartagent.source_schema` (ADR-0007
+    # D8 erratum): the ordinary shape of a chart's first honest save.
+    source_schema_only: bool
+
+
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
@@ -221,6 +238,22 @@ def _current_revision(db: OrmSession, chart: Chart) -> SpecRevision:
     return revision
 
 
+def _owned_revision(
+    db: OrmSession, chart: Chart, revision_number: int
+) -> SpecRevision:
+    revision = db.scalars(
+        select(SpecRevision).where(
+            SpecRevision.chart_id == chart.id,
+            SpecRevision.revision_number == revision_number,
+        )
+    ).first()
+    if revision is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Revision not found"
+        )
+    return revision
+
+
 def _source_name(source: DataSource) -> str:
     if source.kind == "upload":
         return source.original_filename or "upload"
@@ -253,20 +286,6 @@ def _copy_source_schema(
     return result
 
 
-def _strip_source_schema(doc: dict[str, Any]) -> dict[str, Any]:
-    """Remove `x_chartagent.source_schema` for the cache-honesty comparison.
-    A lone `spec_version` goes with it: it is a validation floor the
-    canonical form materialises, with no effect on the rows a bind produces
-    — and row-identity is what the comparison is about."""
-    stripped = {k: v for k, v in doc.items() if k != "x_chartagent"}
-    xc = doc.get("x_chartagent")
-    if isinstance(xc, dict):
-        rest = {k: v for k, v in xc.items() if k != "source_schema"}
-        if rest and set(rest) != {"spec_version"}:
-            stripped["x_chartagent"] = rest
-    return stripped
-
-
 def _cache_honest(
     stored: dict[str, Any], block: BindBlock
 ) -> bool:
@@ -282,8 +301,8 @@ def _cache_honest(
         return False
     if stored.get("x_chartagent", {}).get("source_schema") != block.source_schema:
         return False
-    return canonical_json(_strip_source_schema(stored)) == canonical_json(
-        _strip_source_schema(bound)
+    return canonical_json(without_source_schema(stored)) == canonical_json(
+        without_source_schema(bound)
     )
 
 
@@ -718,6 +737,30 @@ def list_revisions(
     ]
 
 
+@router.get("/specs/{chart_id}/revisions/{from_rev}/diff/{to_rev}")
+def diff_revisions(
+    chart_id: uuid.UUID,
+    from_rev: int,
+    to_rev: int,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> DiffOut:
+    """Structural hunks over two canonical documents. The same bytes the
+    content address is hashed over — one implementation, sitting next to
+    the hash (ADR-0007 D3 erratum). Drift recovery reuses this; it does
+    not write."""
+    chart = _owned_chart(db, chart_id, session.owner_id)
+    left = _owned_revision(db, chart, from_rev)
+    right = _owned_revision(db, chart, to_rev)
+    hunks, source_schema_only = diff_documents(left.content, right.content)
+    return DiffOut(
+        from_revision=from_rev,
+        to_revision=to_rev,
+        hunks=[HunkOut.model_validate(hunk) for hunk in hunks],
+        source_schema_only=source_schema_only,
+    )
+
+
 @router.post("/specs/{chart_id}/revert")
 def revert_spec(
     chart_id: uuid.UUID,
@@ -730,16 +773,7 @@ def revert_spec(
     The cache pointer goes stale (*Refresh to bind*): a different
     revision is a different frame (ADR-0007 D3 erratum)."""
     chart = _owned_chart(db, chart_id, session.owner_id)
-    target = db.scalars(
-        select(SpecRevision).where(
-            SpecRevision.chart_id == chart.id,
-            SpecRevision.revision_number == payload.revision_number,
-        )
-    ).first()
-    if target is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Revision not found"
-        )
+    target = _owned_revision(db, chart, payload.revision_number)
     chart.current_revision_id = target.id
     chart.updated_at = datetime.now(UTC)
     db.commit()

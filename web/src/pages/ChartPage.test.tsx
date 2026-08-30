@@ -41,6 +41,7 @@ vi.mock("../lib/charts-api", async (importOriginal) => {
     downloadWorkbook: vi.fn(),
     listRevisions: vi.fn(),
     revertSpec: vi.fn(),
+    diffRevisions: vi.fn(),
   };
 });
 
@@ -51,7 +52,7 @@ vi.mock("../lib/flint", async (importOriginal) => {
 
 vi.mock("../lib/renderers", () => ({ drawChart: vi.fn() }));
 
-import { getSpec, listRevisions, listSources, previewBind, revertSpec, savedBind } from "../lib/charts-api";
+import { diffRevisions, getSpec, listRevisions, listSources, previewBind, revertSpec, savedBind } from "../lib/charts-api";
 import { loadFlint } from "../lib/flint";
 
 afterEach(cleanup);
@@ -530,6 +531,19 @@ describe("ChartPage revert", () => {
       },
     ]);
     vi.mocked(revertSpec).mockResolvedValue(REVERTED_TO_REV1);
+    vi.mocked(diffRevisions).mockResolvedValue({
+      from_revision: 1,
+      to_revision: 2,
+      source_schema_only: false,
+      hunks: [
+        {
+          op: "changed",
+          path: "/chart_spec/encodings/x/field",
+          from_value: "b",
+          to_value: "a",
+        },
+      ],
+    });
     vi.mocked(drawChart).mockClear();
   });
 
@@ -565,6 +579,141 @@ describe("ChartPage revert", () => {
     // The editor now shows the reverted frame, not the one we moved off.
     expect((screen.getByLabelText(/input frame/i) as HTMLTextAreaElement).value).toContain(
       '"field": "b"',
+    );
+  });
+});
+
+describe("ChartPage diff", () => {
+  beforeEach(() => {
+    vi.mocked(listSources).mockResolvedValue([SOURCE]);
+    vi.mocked(getSpec).mockResolvedValue(SAVED_SPEC_REV2);
+    vi.mocked(loadFlint).mockResolvedValue(HONEST_FLINT);
+    vi.mocked(savedBind).mockResolvedValue(honestEnvelope(3));
+    vi.mocked(listRevisions).mockResolvedValue([
+      {
+        revision_number: 2,
+        created_at: "2026-08-30T12:02:00Z",
+        content_hash: "hash-2",
+        authored_flint_version: "0.5.1",
+        current: true,
+      },
+      {
+        revision_number: 1,
+        created_at: "2026-08-30T12:01:00Z",
+        content_hash: "hash-1",
+        authored_flint_version: "0.5.1",
+        current: false,
+      },
+    ]);
+    vi.mocked(diffRevisions).mockResolvedValue({
+      from_revision: 1,
+      to_revision: 2,
+      source_schema_only: false,
+      hunks: [
+        {
+          op: "changed",
+          path: "/chart_spec/encodings/x/field",
+          from_value: "b",
+          to_value: "a",
+        },
+      ],
+    });
+    vi.mocked(drawChart).mockClear();
+  });
+
+  it("loads the latest-edit hunks when History opens", async () => {
+    render(
+      <MemoryRouter initialEntries={[`/charts/${SAVED_SPEC_REV2.id}`]}>
+        <Routes>
+          <Route path="/charts/:chartId" element={<ChartPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    expect(await screen.findByText("/chart_spec/encodings/x/field")).toBeTruthy();
+    expect(screen.getByText("1 hunk")).toBeTruthy();
+    expect(vi.mocked(diffRevisions)).toHaveBeenCalledWith(
+      getToken,
+      SAVED_SPEC_REV2.id,
+      1,
+      2,
+    );
+  });
+
+  it("re-fetches when the user picks another pair", async () => {
+    vi.mocked(diffRevisions).mockResolvedValueOnce({
+      from_revision: 1,
+      to_revision: 2,
+      source_schema_only: false,
+      hunks: [
+        {
+          op: "changed",
+          path: "/chart_spec/encodings/x/field",
+          from_value: "b",
+          to_value: "a",
+        },
+      ],
+    });
+    vi.mocked(diffRevisions).mockResolvedValueOnce({
+      from_revision: 2,
+      to_revision: 2,
+      source_schema_only: false,
+      hunks: [],
+    });
+    render(
+      <MemoryRouter initialEntries={[`/charts/${SAVED_SPEC_REV2.id}`]}>
+        <Routes>
+          <Route path="/charts/:chartId" element={<ChartPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    expect(await screen.findByText("/chart_spec/encodings/x/field")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Diff from revision"), {
+      target: { value: "2" },
+    });
+    expect(await screen.findByText("Identical revisions — zero hunks.")).toBeTruthy();
+    expect(vi.mocked(diffRevisions).mock.calls.at(-1)).toEqual([
+      getToken,
+      SAVED_SPEC_REV2.id,
+      2,
+      2,
+    ]);
+  });
+
+  it("keeps the previous hunks when a compare fails", async () => {
+    vi.mocked(diffRevisions).mockResolvedValueOnce({
+      from_revision: 1,
+      to_revision: 2,
+      source_schema_only: false,
+      hunks: [
+        {
+          op: "changed",
+          path: "/chart_spec/encodings/x/field",
+          from_value: "b",
+          to_value: "a",
+        },
+      ],
+    });
+    vi.mocked(diffRevisions).mockRejectedValueOnce(
+      new ApiError(500, { error: "internal", message: "compare failed" }),
+    );
+    render(
+      <MemoryRouter initialEntries={[`/charts/${SAVED_SPEC_REV2.id}`]}>
+        <Routes>
+          <Route path="/charts/:chartId" element={<ChartPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    expect(await screen.findByText("/chart_spec/encodings/x/field")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Diff from revision"), {
+      target: { value: "2" },
+    });
+    expect(await screen.findByText("compare failed")).toBeTruthy();
+    expect(screen.getByText("/chart_spec/encodings/x/field")).toBeTruthy();
+    expect((screen.getByLabelText("Diff from revision") as HTMLSelectElement).value).toBe(
+      "1",
     );
   });
 });
