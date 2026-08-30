@@ -5,16 +5,13 @@
  * the library never produces, and this module does not invent it.
  */
 
+import type { SnapshotColumn } from "./charts-api";
+
 export interface DriftedField {
   name: string;
   kind: string;
   expected: string | null;
   found: string | null;
-}
-
-export interface SnapshotColumn {
-  name: string;
-  type: string;
 }
 
 export interface DriftRow {
@@ -69,17 +66,12 @@ function collectColNames(node: unknown, into: Set<string>): void {
   for (const value of Object.values(obj)) collectColNames(value, into);
 }
 
-function statusWord(kind: string): string {
-  if (kind === "retyped") return "retyped";
-  return "dropped";
-}
-
 export function driftTable({ drifted, snapshot, referenced }: DriftTableInput): DriftRow[] {
   const referencedSet = new Set(referenced);
   const rows: DriftRow[] = drifted.map((field) => ({
     spec: field.name,
     snapshot: field.kind === "retyped" ? field.name : "—",
-    status: statusWord(field.kind),
+    status: field.kind,
   }));
   const added = snapshot
     .map((column) => column.name)

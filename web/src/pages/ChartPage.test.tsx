@@ -399,10 +399,9 @@ describe("ChartPage retype_unchecked", () => {
       "rendered",
     );
     expect(screen.getByText("retype_unchecked")).toBeTruthy();
+    expect(screen.getByText(/source_schema baseline is absent/i)).toBeTruthy();
     expect(
-      screen.getByText(
-        "The retype check is running partially. One save records the source schema baseline.",
-      ),
+      screen.getByText(/The retype check is running partially. One save records the source schema baseline./),
     ).toBeTruthy();
   });
 });

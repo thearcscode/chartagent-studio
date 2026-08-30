@@ -817,11 +817,13 @@ export function ChartPage() {
             </aside>
           </div>
 
-          {serverWarnings.some((warning) => warning.code === "retype_unchecked") ? (
-            <p className="retype-unchecked">
-              The retype check is running partially. One save records the source schema baseline.
-            </p>
-          ) : null}
+          {serverWarnings
+            .filter((warning) => warning.code === "retype_unchecked")
+            .map((warning) => (
+              <p key={warning.code} className="retype-unchecked">
+                {warning.message} The retype check is running partially. One save records the source schema baseline.
+              </p>
+            ))}
 
           <p className="cost-line">
             {lastBind

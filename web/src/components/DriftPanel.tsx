@@ -4,7 +4,8 @@
  * or out of v0. Abandoning is "Leave as is": the chart is not written.
  */
 
-import { driftTable, type DriftedField, type SnapshotColumn } from "../lib/drift";
+import type { SnapshotColumn } from "../lib/charts-api";
+import { driftTable, type DriftedField } from "../lib/drift";
 
 interface DriftPanelProps {
   message: string;
