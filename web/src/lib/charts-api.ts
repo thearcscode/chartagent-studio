@@ -8,12 +8,18 @@ import type { Backend } from "./backends";
 
 type GetToken = () => Promise<string | null>;
 
+export interface SnapshotColumn {
+  name: string;
+  type: string;
+}
+
 export interface SourceOut {
   id: string;
   kind: "upload" | "url";
   original_filename: string | null;
   url: string | null;
   byte_size: number | null;
+  schema_snapshot: { columns: SnapshotColumn[] };
   created_at: string;
 }
 

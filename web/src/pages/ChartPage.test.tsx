@@ -60,6 +60,13 @@ const SOURCE: SourceOut = {
   original_filename: "sales.csv",
   url: null,
   byte_size: 128,
+  // The source the failed refresh is pointed at — `a` is gone, `c` is new.
+  schema_snapshot: {
+    columns: [
+      { name: "c", type: "BIGINT" },
+      { name: "b", type: "VARCHAR" },
+    ],
+  },
   created_at: "2026-08-29T00:00:00Z",
 };
 
@@ -280,7 +287,7 @@ describe("ChartPage refresh", () => {
     });
   });
 
-  it("keeps the previous picture and names the drifted fields on a failed refresh", async () => {
+  it("keeps the previous picture and renders the three-column table on a failed refresh", async () => {
     const { container } = renderSavedChart();
     expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
     const drawsBefore = vi.mocked(drawChart).mock.calls.length;
@@ -295,17 +302,107 @@ describe("ChartPage refresh", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
-    // The drift is listed field by field…
-    expect(await screen.findByText(/source column\(s\) dropped: a/)).toBeTruthy();
-    expect(screen.getByText(/a: expected a, found — \(dropped\)/)).toBeTruthy();
+    expect(await screen.findByText("SchemaDriftError")).toBeTruthy();
+    expect(screen.getByText("Nothing was rendered and no model was called.")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: /spec references/i })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: /snapshot has/i })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: /status/i })).toBeTruthy();
+    expect(screen.getByText("dropped")).toBeTruthy();
+    expect(screen.getByText("added · ignored")).toBeTruthy();
+    expect(screen.getByText("c, b")).toBeTruthy();
+    // A drop plus an extra snapshot column is not a rename.
+    expect(screen.queryByText("renamed")).toBeNull();
+    expect(screen.queryByRole("button", { name: /regenerate/i })).toBeNull();
+    expect(screen.queryByText(/schedule/i)).toBeNull();
+    expect(screen.queryByText(/light mode/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /remap/i })).toBeNull();
 
-    // …and the previous picture is untouched: no redraw, no emptied area,
+    // The previous picture is untouched: no redraw, no emptied area,
     // the cost line still describes the bind that produced the picture.
     expect(vi.mocked(drawChart).mock.calls.length).toBe(drawsBefore);
     expect(container.querySelector(".chart-area")?.getAttribute("data-state")).toBe(
       "rendered",
     );
     expect(screen.getByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+  });
+
+  it("names a retype as a retype and does not offer a remap", async () => {
+    renderSavedChart();
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+
+    vi.mocked(savedBind).mockRejectedValueOnce(
+      new ApiError(409, {
+        error: "schema_drift",
+        message: "bucket `number` → `string` (DuckDB VARCHAR) on a",
+        stage: "source",
+        drifted: [{ name: "a", kind: "retyped", expected: "number", found: "string" }],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByText("retyped")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: /remap|column/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /remap/i })).toBeNull();
+  });
+
+  it("leaves the chart exactly as it was when the recovery screen is abandoned", async () => {
+    const { container } = renderSavedChart();
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+    const drawsBefore = vi.mocked(drawChart).mock.calls.length;
+
+    vi.mocked(savedBind).mockRejectedValueOnce(
+      new ApiError(409, {
+        error: "schema_drift",
+        message: "source column(s) dropped: a",
+        stage: "source",
+        drifted: [{ name: "a", kind: "dropped", expected: "a", found: null }],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("SchemaDriftError")).toBeTruthy();
+
+    const bindsBeforeDismiss = vi.mocked(savedBind).mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Leave as is" }));
+
+    expect(screen.queryByText("SchemaDriftError")).toBeNull();
+    expect(vi.mocked(savedBind).mock.calls.length).toBe(bindsBeforeDismiss);
+    expect(vi.mocked(drawChart).mock.calls.length).toBe(drawsBefore);
+    expect(container.querySelector(".chart-area")?.getAttribute("data-state")).toBe(
+      "rendered",
+    );
+    expect(screen.getByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+  });
+});
+
+describe("ChartPage retype_unchecked", () => {
+  beforeEach(() => {
+    vi.mocked(listSources).mockResolvedValue([SOURCE]);
+    vi.mocked(getSpec).mockResolvedValue(SAVED_SPEC);
+    vi.mocked(loadFlint).mockResolvedValue(HONEST_FLINT);
+    vi.mocked(drawChart).mockClear();
+  });
+
+  it("draws a chart with no baseline and names the partial check as actionable", async () => {
+    vi.mocked(savedBind).mockResolvedValue({
+      ...honestEnvelope(3),
+      warnings: [
+        {
+          code: "retype_unchecked",
+          message: "source_schema baseline is absent; columns unchecked: a",
+        },
+      ],
+    });
+    const { container } = renderSavedChart();
+
+    expect(await screen.findByText("3 rows · 41 ms · ECharts")).toBeTruthy();
+    expect(container.querySelector(".chart-area")?.getAttribute("data-state")).toBe(
+      "rendered",
+    );
+    expect(screen.getByText("retype_unchecked")).toBeTruthy();
+    expect(screen.getByText(/source_schema baseline is absent/i)).toBeTruthy();
+    expect(
+      screen.getByText(/The retype check is running partially. One save records the source schema baseline./),
+    ).toBeTruthy();
   });
 });
 

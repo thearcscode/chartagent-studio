@@ -6,8 +6,8 @@
  *
  * Refresh (#75): one click re-binds the saved revision against the source —
  * zero LLM. A successful refresh redraws from the new envelope through the
- * same client path as any bind; a failed refresh names the typed error
- * (drift, field by field) and leaves the previous picture untouched.
+ * same client path as any bind; a failed refresh that carries `drifted`
+ * opens the recovery table (#8) and leaves the previous picture untouched.
  */
 
 import { useAuth, UserButton } from "@clerk/react";
@@ -15,6 +15,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { BackendPicker } from "../components/BackendPicker";
+import { DriftPanel } from "../components/DriftPanel";
+import { referencedNames, type DriftedField } from "../lib/drift";
 import {
   ApiError,
   createSpec,
@@ -67,6 +69,10 @@ interface LastBind {
   envelope: BindResponse;
   backend: Backend;
 }
+
+type RefreshFailure =
+  | { kind: "drift"; message: string; drifted: DriftedField[] }
+  | { kind: "other"; lines: string[] };
 
 function sourceName(source: SourceOut): string {
   if (source.kind === "upload") return source.original_filename ?? "upload";
@@ -132,7 +138,7 @@ export function ChartPage() {
   const [lastBind, setLastBind] = useState<LastBind | null>(null);
   const [formErrors, setFormErrors] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string[] | null>(null);
+  const [refreshError, setRefreshError] = useState<RefreshFailure | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
@@ -353,8 +359,17 @@ export function ChartPage() {
       await drawEnvelope(envelope, backend, spec.content);
     } catch (error) {
       // The cache is untouched server-side; the picture, rails and cost
-      // line stay. The mapped error names the drifted fields alongside.
-      setRefreshError(toErrorLines(error));
+      // line stay. SchemaDriftError opens the recovery table rather than
+      // a red box of field lines.
+      if (error instanceof ApiError && error.body.error === "schema_drift") {
+        setRefreshError({
+          kind: "drift",
+          message: error.body.message ?? "Schema drift",
+          drifted: error.body.drifted ?? [],
+        });
+      } else {
+        setRefreshError({ kind: "other", lines: toErrorLines(error) });
+      }
     } finally {
       setRefreshing(false);
     }
@@ -731,10 +746,22 @@ export function ChartPage() {
         </section>
 
         <section className="stage-pane">
-          {refreshError ? (
+          {refreshError?.kind === "drift" && spec ? (
+            <DriftPanel
+              message={refreshError.message}
+              drifted={refreshError.drifted}
+              snapshot={
+                sources.find((source) => source.id === sourceId)?.schema_snapshot
+                  .columns ?? []
+              }
+              referenced={referencedNames(spec.content, refreshError.drifted)}
+              onDismiss={() => setRefreshError(null)}
+            />
+          ) : null}
+          {refreshError?.kind === "other" ? (
             <div className="refresh-error" role="alert">
               <strong>Refresh failed — the previous picture is unchanged.</strong>
-              {refreshError.map((line) => (
+              {refreshError.lines.map((line) => (
                 <p key={line}>{line}</p>
               ))}
             </div>
@@ -789,6 +816,14 @@ export function ChartPage() {
               )}
             </aside>
           </div>
+
+          {serverWarnings
+            .filter((warning) => warning.code === "retype_unchecked")
+            .map((warning) => (
+              <p key={warning.code} className="retype-unchecked">
+                {warning.message} The retype check is running partially. One save records the source schema baseline.
+              </p>
+            ))}
 
           <p className="cost-line">
             {lastBind
