@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import httpx
 from chartagent import canonical_json
 from fastapi.testclient import TestClient
 
@@ -84,13 +83,12 @@ def _create_spec(
     content: dict[str, Any] = FRAME,
     sub: str = "user_2abc",
     **extra: Any,
-) -> httpx.Response:
-    response: httpx.Response = client.post(
+) -> Any:
+    return client.post(
         "/api/specs",
         json={"content": content, "source_id": source_id, **extra},
         headers=bearer_headers(signing, sub=sub),
     )
-    return response
 
 
 def _preview_bind(
@@ -101,13 +99,12 @@ def _preview_bind(
     content: dict[str, Any] = FRAME,
     backend: str = "echarts",
     sub: str = "user_2abc",
-) -> httpx.Response:
-    response: httpx.Response = client.post(
+) -> Any:
+    return client.post(
         "/api/specs/bind",
         json={"content": content, "source_id": source_id, "backend": backend},
         headers=bearer_headers(signing, sub=sub),
     )
-    return response
 
 
 def _bind_block(

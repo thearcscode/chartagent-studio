@@ -6,8 +6,8 @@ carries what the read returns.
 
 import hashlib
 from pathlib import Path
+from typing import Any
 
-import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
 from fastapi import FastAPI
@@ -36,13 +36,12 @@ def _upload(
     filename: str = "q3.csv",
     content: bytes = CSV_BYTES,
     content_type: str = "text/csv",
-) -> httpx.Response:
-    response: httpx.Response = client.post(
+) -> Any:
+    return client.post(
         "/api/sources/upload",
         files={"file": (filename, content, content_type)},
         headers=bearer_headers(signing, sub=sub),
     )
-    return response
 
 
 def test_upload_csv_registers_source(

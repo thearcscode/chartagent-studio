@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Chartagent Studio — the hosted product built on the chartagent library."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "chartagent>=0.1",
+    "chartagent[anthropic]>=0.1",
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "pydantic-settings>=2",
@@ -21,7 +21,8 @@ dependencies = [
     "xlsxwriter>=3",
 ]
 
-# The dependency declaration above never changes. The source below is dev-only:
+# The version constraint and source never change. Asking the library for one
+# of its own extras is not a change to the pin. The source below is dev-only:
 # CI and deploy override it with a git dependency on a pinned SHA, and it is
 # deleted entirely once chartagent is on PyPI.
 [tool.uv.sources]

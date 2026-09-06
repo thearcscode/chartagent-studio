@@ -1,8 +1,33 @@
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# Vendor API keys are not Settings fields — the name is derived from
+# PLANNER_MODEL's prefix. Load `.env` into the process so a key written
+# next to CLERK_JWKS_URL is visible to both the boot check and the provider.
+load_dotenv()
+
+
+class StudioConfigurationError(Exception):
+    """Studio cannot start: a setting the operator owns is missing or wrong."""
+
+
+def provider_api_key_name(model: str) -> str:
+    """The vendor env var implied by a pydantic-ai model string's prefix."""
+    return f"{model.split(':', 1)[0].upper()}_API_KEY"
+
+
+def require_planner_api_key(model: str) -> None:
+    """Raise before the agent is built, so a missing key is Studio's fault."""
+    env_name = provider_api_key_name(model)
+    if not os.environ.get(env_name):
+        raise StudioConfigurationError(
+            f"PLANNER_MODEL={model!r} requires the {env_name} environment variable"
+        )
 
 
 class Settings(BaseSettings):
@@ -38,3 +63,6 @@ class Settings(BaseSettings):
     bind_timeout_seconds: float = 30.0
     # Backstop for the whole request; must exceed the bind timeout.
     request_timeout_seconds: float = 120.0
+    # pydantic-ai model string; the provider prefix names the API-key env var
+    # (Studio ADR-0002). Bare, matching bind_row_cap — no STUDIO_ prefix.
+    planner_model: str = "anthropic:claude-sonnet-5"

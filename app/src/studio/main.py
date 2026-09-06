@@ -1,3 +1,4 @@
+from chartagent import create_chart_agent
 from chartagent.errors import ChartAgentError
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -6,7 +7,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from studio.config import Settings
+from studio.config import Settings, require_planner_api_key
 from studio.db import build_session_factory
 from studio.describe import DuckDbDescriber
 from studio.errors import (
@@ -48,6 +49,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # are env-populated, which mypy cannot see.
         settings = Settings()  # type: ignore[call-arg]
 
+    require_planner_api_key(settings.planner_model)
+
     # SPA-private routes: no API keys, no OpenAPI promise, no versioned paths.
     app = FastAPI(
         title="Chartagent Studio",
@@ -62,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = build_session_factory(settings.database_url)
     app.state.object_store = LocalObjectStore(settings.object_store_dir)
     app.state.source_describer = DuckDbDescriber()
+    app.state.chart_agent = create_chart_agent(model=settings.planner_model)
 
     configure_logging()
     app.add_middleware(RequestContextMiddleware)

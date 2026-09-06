@@ -30,6 +30,8 @@ services:
       CLERK_JWKS_URL: ${CLERK_JWKS_URL}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
       CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-}
+      PLANNER_MODEL: ${PLANNER_MODEL:-anthropic:claude-sonnet-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       DATABASE_URL: postgresql+psycopg://studio:studio@db:5432/studio
     ports:
       - "8000:8000"

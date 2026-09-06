@@ -15,7 +15,7 @@ from jwt.algorithms import RSAAlgorithm
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
 
-from studio.config import Settings
+from studio.config import Settings, provider_api_key_name
 from studio.describe import DuckDbDescriber, SchemaSnapshot, SourceUnreadableError
 from studio.main import create_app
 
@@ -145,6 +145,9 @@ def make_app(
         web_dist_dir=web_dist_dir or Path("/definitely/not/a/dist"),
         **overrides,
     )
+    key_name = provider_api_key_name(settings.planner_model)
+    if not os.environ.get(key_name):
+        os.environ[key_name] = "test-dummy-key"
     app = create_app(settings)
     app.state.jwks_client = FakeJwksClient(jwks)
     return app
