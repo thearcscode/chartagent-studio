@@ -27,7 +27,8 @@ def _settings(*, planner_model: str = "anthropic:claude-sonnet-4-6") -> Settings
 
 
 def test_settings_default_planner_model_is_the_library_string() -> None:
-    assert Settings.model_fields["planner_model"].default == "anthropic:claude-sonnet-4-6"
+    default = Settings.model_fields["planner_model"].default
+    assert default == "anthropic:claude-sonnet-4-6"
 
 
 def test_create_app_raises_when_the_planner_key_is_absent(
