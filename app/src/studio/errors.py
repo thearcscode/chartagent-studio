@@ -1,9 +1,10 @@
 """The one error-mapping table (ADR-0006 D13): each library error class →
 status code → user-facing body carrying the error's own typed fields, so the
 UI can name an offending key or a drifted field list rather than "something
-went wrong". `pydantic.ValidationError` never crosses the library seam, so it
-never reaches this table. An unmapped exception is a 500 with a request id
-and nothing else.
+went wrong". Planner errors join the same table (Studio ADR-0001 D10).
+`pydantic.ValidationError` never crosses the library seam, so it never
+reaches this table. An unmapped exception is a 500 with a request id and
+nothing else.
 """
 
 from __future__ import annotations
@@ -16,11 +17,15 @@ from typing import Any
 from chartagent.errors import (
     BackendCapabilityError,
     DataSourceError,
+    InexpressibleRequestError,
+    ModelClientUnavailableError,
+    PlannerFailureError,
     RawSqlRejectedError,
     SchemaDriftError,
     SpecShapeError,
     SpecVocabularyError,
     TransformError,
+    UnanswerableInstructionError,
 )
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
@@ -38,6 +43,22 @@ class RowCapExceededError(Exception):
         )
         self.row_count = row_count
         self.cap = cap
+
+
+class ModelVendorError(Exception):
+    """A model-vendor transport, auth, or model-string failure, wrapped so a
+    rate limit does not read as a Studio bug (Studio ADR-0001 D10)."""
+
+    def __init__(self, *, request_id: str | None) -> None:
+        super().__init__("the model vendor is unavailable")
+        self.request_id = request_id
+
+
+class PlanBusyError(Exception):
+    """The plan-concurrency semaphore is full (Studio ADR-0001 D8)."""
+
+    def __init__(self) -> None:
+        super().__init__("try again shortly")
 
 
 def _body(message: str, code: str, **fields: Any) -> dict[str, Any]:
@@ -111,6 +132,46 @@ def _row_cap(exc: RowCapExceededError) -> tuple[int, dict[str, Any]]:
     )
 
 
+def _inexpressible(exc: InexpressibleRequestError) -> tuple[int, dict[str, Any]]:
+    return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
+        str(exc), "inexpressible_request", bucket=exc.bucket
+    )
+
+
+def _unanswerable(exc: UnanswerableInstructionError) -> tuple[int, dict[str, Any]]:
+    return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
+        str(exc),
+        "unanswerable_instruction",
+        kind=exc.kind,
+        keys=list(exc.keys),
+    )
+
+
+def _planner_failure(exc: PlannerFailureError) -> tuple[int, dict[str, Any]]:
+    return status.HTTP_502_BAD_GATEWAY, _body(
+        str(exc), "planner_failure", reason=exc.reason
+    )
+
+
+def _model_client_unavailable(
+    exc: ModelClientUnavailableError,
+) -> tuple[int, dict[str, Any]]:
+    return status.HTTP_500_INTERNAL_SERVER_ERROR, _body(
+        str(exc), "model_client_unavailable", extra=exc.extra
+    )
+
+
+def _model_vendor(exc: ModelVendorError) -> tuple[int, dict[str, Any]]:
+    return status.HTTP_502_BAD_GATEWAY, {
+        "error": "model_vendor_unavailable",
+        "request_id": exc.request_id,
+    }
+
+
+def _plan_busy(exc: PlanBusyError) -> tuple[int, dict[str, Any]]:
+    return status.HTTP_503_SERVICE_UNAVAILABLE, _body(str(exc), "plan_busy")
+
+
 # Subclass-before-base where one exists (RawSqlRejectedError is a
 # TransformError); lookup walks the MRO, so order here is documentation.
 _MAPPERS: dict[type[Exception], Callable[[Any], tuple[int, dict[str, Any]]]] = {
@@ -122,6 +183,12 @@ _MAPPERS: dict[type[Exception], Callable[[Any], tuple[int, dict[str, Any]]]] = {
     RawSqlRejectedError: _raw_sql_rejected,
     TransformError: _transform,
     RowCapExceededError: _row_cap,
+    InexpressibleRequestError: _inexpressible,
+    UnanswerableInstructionError: _unanswerable,
+    PlannerFailureError: _planner_failure,
+    ModelClientUnavailableError: _model_client_unavailable,
+    ModelVendorError: _model_vendor,
+    PlanBusyError: _plan_busy,
 }
 
 
@@ -150,7 +217,8 @@ async def chartagent_error_handler(
     return JSONResponse(status_code=status_code, content=body)
 
 
-async def row_cap_error_handler(request: Request, exc: Exception) -> JSONResponse:
+async def mapped_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """A Studio or library type that has a row in the table."""
     mapped = map_error(exc)
     assert mapped is not None  # registered for the mapped class only
     status_code, body = mapped

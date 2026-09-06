@@ -112,3 +112,30 @@ def log_bind(
             }
         )
     )
+
+
+def log_plan(
+    *,
+    request_id: str | None,
+    backend: str | None,
+    outcome: str,
+    row_count: int | None = None,
+    elapsed_ms: int | None = None,
+    plan_elapsed_ms: int | None = None,
+    error_code: str | None = None,
+) -> None:
+    """One JSON line per plan — success or failure (Studio ADR-0001 D5)."""
+    logger.info(
+        json.dumps(
+            {
+                "event": "plan",
+                "request_id": request_id,
+                "backend": backend,
+                "outcome": outcome,
+                "row_count": row_count,
+                "elapsed_ms": elapsed_ms,
+                "plan_elapsed_ms": plan_elapsed_ms,
+                "error_code": error_code,
+            }
+        )
+    )

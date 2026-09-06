@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     bind_timeout_seconds: float = 30.0
     # Backstop for the whole request; must exceed the bind timeout.
     request_timeout_seconds: float = 120.0
+    # Concurrent plans (Studio ADR-0001 D8). A plan is seconds long and a
+    # different tenant of the threadpool than a millisecond bind.
+    plan_concurrency: int = 2
     # pydantic-ai model string; the provider prefix names the API-key env var
     # (Studio ADR-0002). Bare, matching bind_row_cap — no STUDIO_ prefix.
     planner_model: str = "anthropic:claude-sonnet-5"
