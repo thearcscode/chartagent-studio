@@ -328,6 +328,61 @@ code,
   color: var(--faint);
 }
 
+.instruction-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.instruction-editor {
+  min-height: 72px;
+  resize: vertical;
+  font:
+    400 12.5px/1.6 "IBM Plex Sans",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.instruction-editor:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.instruction-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.instruction-actions .primary-button {
+  flex-shrink: 0;
+}
+
+.instruction-disclosure {
+  margin: 0;
+  font:
+    400 11px/1.5 "IBM Plex Sans",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: var(--faint);
+}
+
+.planner-chose {
+  font:
+    400 11px "IBM Plex Sans",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: var(--muted);
+}
+
 .frame-editor {
   flex: 1;
   min-height: 320px;

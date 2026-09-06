@@ -4,6 +4,10 @@
  * rails that never merge, and a cost-and-latency line from the bind that
  * produced the picture.
  *
+ * Instruction box (#20): type an instruction, press Plan, and a draft lands
+ * in the editor — an unsaved frame drawn from the plan's own bind, compiled
+ * through the same client path as any other. Save is still Save.
+ *
  * Refresh (#75): one click re-binds the saved revision against the source —
  * zero LLM. A successful refresh redraws from the new envelope through the
  * same client path as any bind; a failed refresh that carries `drifted`
@@ -32,9 +36,11 @@ import {
   deleteSpec,
   diffRevisions,
   downloadWorkbook,
+  frameFromEnvelope,
   getSpec,
   listRevisions,
   listSources,
+  planSpec,
   previewBind,
   registerUrlSource,
   revertSpec,
@@ -102,6 +108,11 @@ function sourceName(source: SourceOut): string {
 function errorLines(error: ApiError): string[] {
   const body = error.body;
   const lines: string[] = [];
+  if (body.error === "model_vendor_unavailable") {
+    lines.push("The model vendor is temporarily unavailable. Try again shortly.");
+    if (body.request_id) lines.push(`request id: ${body.request_id}`);
+    return lines;
+  }
   const headline = body.message ?? body.detail ?? `HTTP ${error.status}`;
   lines.push(headline);
   const fields: string[] = [];
@@ -111,6 +122,9 @@ function errorLines(error: ApiError): string[] {
   if (body.backend) fields.push(`backend: ${body.backend}`);
   if (body.pin) fields.push(`pin: ${body.pin}`);
   if (body.stage) fields.push(`stage: ${body.stage}`);
+  if (body.bucket !== undefined) fields.push(`bucket: ${body.bucket}`);
+  if (body.reason) fields.push(`reason: ${body.reason}`);
+  if (body.extra) fields.push(`extra: ${body.extra}`);
   if (body.row_count !== undefined && body.cap !== undefined) {
     fields.push(`${body.row_count} rows over the cap of ${body.cap}`);
   }
@@ -122,6 +136,18 @@ function errorLines(error: ApiError): string[] {
   }
   if (body.request_id) lines.push(`request id: ${body.request_id}`);
   return lines;
+}
+
+/** Cost line: after a plan, bind ms and plan seconds are separate terms;
+ * the plan term is gone on every later bind (Studio ADR-0001 D7). */
+function costLineText(bind: LastBind, planMs: number | null): string {
+  const rows = bind.envelope.row_count;
+  const ms = Math.round(bind.envelope.elapsed * 1000);
+  const label = BACKEND_LABELS[bind.backend];
+  if (planMs !== null) {
+    return `${rows} rows · ${ms} ms bind · ${Math.round(planMs / 1000)} s plan · ${label}`;
+  }
+  return `${rows} rows · ${ms} ms · ${label}`;
 }
 
 /** Any caught value → displayable lines: the mapped error's typed fields
@@ -164,6 +190,11 @@ export function ChartPage() {
   const [diffFrom, setDiffFrom] = useState<number | null>(null);
   const [diffTo, setDiffTo] = useState<number | null>(null);
   const [diff, setDiff] = useState<DiffOut | null>(null);
+  const [instruction, setInstruction] = useState("");
+  const [planning, setPlanning] = useState(false);
+  const [planElapsedMs, setPlanElapsedMs] = useState<number | null>(null);
+  const [plannerChoseBackend, setPlannerChoseBackend] = useState(false);
+  const [draftFromPlan, setDraftFromPlan] = useState(false);
 
   const chartRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<DrawCleanup | null>(null);
@@ -297,11 +328,12 @@ export function ChartPage() {
     ) => {
       const frame = parseEditor();
       if (!frame) return;
-      if (!currentSpec && !sourceId) {
+      const bindSavedRevision = currentSpec !== null && !draftFromPlan;
+      if (!bindSavedRevision && !sourceId) {
         setFormErrors(["Pick a source before binding an unsaved frame."]);
         return;
       }
-      if (currentSpec !== null && editorDiffersFrom(currentSpec)) {
+      if (bindSavedRevision && currentSpec !== null && editorDiffersFrom(currentSpec)) {
         // Binding with a dirty editor would draw the old frame — and a later
         // save would pair the new frame with rows bound from the old one.
         setFormErrors(["Save your edits first — a saved chart binds the saved revision."]);
@@ -309,13 +341,15 @@ export function ChartPage() {
       }
       setFormErrors([]);
       setRefreshError(null);
+      setPlanElapsedMs(null);
+      setPlannerChoseBackend(false);
       emptyChartArea();
       setArea({ kind: "working" });
       setServerWarnings([]);
       setCompileWarnings([]);
       try {
         const envelope =
-          currentSpec !== null
+          bindSavedRevision && currentSpec !== null
             ? await savedBind(getToken, currentSpec.id, {
                 backend: targetBackend,
                 trigger: trigger === "preview" ? "open" : trigger,
@@ -326,11 +360,11 @@ export function ChartPage() {
                 backend: targetBackend,
               });
         // The frame the server actually bound: the stored revision for a
-        // saved chart, the editor text for a preview.
+        // saved chart, the editor text for a preview or a planned draft.
         await drawEnvelope(
           envelope,
           targetBackend,
-          currentSpec !== null ? currentSpec.content : frame,
+          bindSavedRevision && currentSpec !== null ? currentSpec.content : frame,
         );
       } catch (error) {
         emptyChartArea();
@@ -350,8 +384,83 @@ export function ChartPage() {
         });
       }
     },
-    [drawEnvelope, editorDiffersFrom, emptyChartArea, getToken, parseEditor, sourceId],
+    [draftFromPlan, drawEnvelope, editorDiffersFrom, emptyChartArea, getToken, parseEditor, sourceId],
   );
+
+  const editorIsDirty = useCallback(() => {
+    const text = editorTextRef.current;
+    if (text.trim() === "") return false;
+    return spec === null || editorDiffersFrom(spec);
+  }, [editorDiffersFrom, spec]);
+
+  /** Plan a draft: one library call, nothing written. The returned frame
+   * (rows stripped) feeds the editor and lastBind; the picture travels the
+   * existing compile-and-draw path (Studio ADR-0001). */
+  const onPlan = useCallback(async () => {
+    const text = instruction.trim();
+    if (text === "") {
+      setFormErrors(["Type an instruction before planning."]);
+      return;
+    }
+    if (!sourceId) {
+      setFormErrors(["Pick a source before planning."]);
+      return;
+    }
+    if (
+      editorIsDirty() &&
+      !window.confirm(
+        "Replace the frame in the editor with a planned draft? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setFormErrors([]);
+    setRefreshError(null);
+    emptyChartArea();
+    setArea({ kind: "working" });
+    setPlanning(true);
+    setServerWarnings([]);
+    setCompileWarnings([]);
+    try {
+      const envelope = await planSpec(getToken, {
+        instruction: text,
+        source_id: sourceId,
+      });
+      const frame = frameFromEnvelope(envelope);
+      const chosen = envelope.backend as Backend;
+      updateEditorText(JSON.stringify(frame, null, 2));
+      setBackend(chosen);
+      setPlannerChoseBackend(true);
+      setPlanElapsedMs(envelope.plan_elapsed_ms);
+      setDraftFromPlan(true);
+      await drawEnvelope(envelope, chosen, frame);
+    } catch (error) {
+      emptyChartArea();
+      if (error instanceof ApiError && error.body.error === "backend_capability") {
+        setArea({ kind: "amber", reason: errorLines(error).join(" — ") });
+        return;
+      }
+      setArea({
+        kind: "error",
+        reason:
+          error instanceof ApiError
+            ? errorLines(error).join(" — ")
+            : error instanceof Error
+              ? error.message
+              : String(error),
+      });
+    } finally {
+      setPlanning(false);
+    }
+  }, [
+    drawEnvelope,
+    editorIsDirty,
+    emptyChartArea,
+    getToken,
+    instruction,
+    sourceId,
+    updateEditorText,
+  ]);
 
   /** Zero-LLM refresh (#75): one bind of the saved revision against the
    * chart's source — new bytes, no model, no new revision. The previous
@@ -366,6 +475,8 @@ export function ChartPage() {
     }
     setFormErrors([]);
     setRefreshError(null);
+    setPlanElapsedMs(null);
+    setPlannerChoseBackend(false);
     setRefreshing(true);
     try {
       const chosenSource = sourceId !== null && sourceId !== spec.default_source_id;
@@ -458,6 +569,9 @@ export function ChartPage() {
       setExcelReady(null);
       setRefreshError(null);
       setArea({ kind: "stale" });
+      setDraftFromPlan(false);
+      setPlannerChoseBackend(false);
+      setPlanElapsedMs(null);
       await loadRevisions(reverted.id);
     } catch (error) {
       setFormErrors(toErrorLines(error));
@@ -573,6 +687,7 @@ export function ChartPage() {
       setSpec(saved);
       setTitle(saved.title);
       updateEditorText(JSON.stringify(saved.content, null, 2));
+      setDraftFromPlan(false);
       if (!spec) {
         navigate(`/charts/${saved.id}`, { replace: true });
       }
@@ -736,6 +851,9 @@ export function ChartPage() {
             void runBind(spec ? "backend_switch" : "preview", candidate, spec);
           }}
         />
+        {plannerChoseBackend ? (
+          <span className="planner-chose">The planner chose this backend.</span>
+        ) : null}
         <button
           type="button"
           className="primary-button"
@@ -830,6 +948,32 @@ export function ChartPage() {
 
       <main className="chart-main">
         <section className="editor-pane">
+          <div className="instruction-box">
+            <label className="pane-label" htmlFor="instruction">
+              Instruction
+            </label>
+            <textarea
+              id="instruction"
+              className="instruction-editor"
+              value={instruction}
+              placeholder="What chart do you want?"
+              onChange={(event) => setInstruction(event.target.value)}
+            />
+            <div className="instruction-actions">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={busy || instruction.trim() === "" || sourceId === null}
+                onClick={() => void onPlan()}
+              >
+                Plan
+              </button>
+              <p className="instruction-disclosure">
+                A profile of this source, including sample values, plus your
+                instruction, is sent to the configured model vendor.
+              </p>
+            </div>
+          </div>
           <label className="pane-label" htmlFor="frame-editor">
             Input frame
           </label>
@@ -942,7 +1086,9 @@ export function ChartPage() {
             {area.kind === "idle" ? (
               <p className="area-note">Bind to draw.</p>
             ) : null}
-            {area.kind === "working" ? <p className="area-note">Binding…</p> : null}
+            {area.kind === "working" ? (
+              <p className="area-note">{planning ? "Planning…" : "Binding…"}</p>
+            ) : null}
             {area.kind === "stale" ? (
               <div className="area-note">
                 <strong>Refresh to bind</strong>
@@ -1002,11 +1148,7 @@ export function ChartPage() {
             ))}
 
           <p className="cost-line">
-            {lastBind
-              ? `${lastBind.envelope.row_count} rows · ${Math.round(
-                  lastBind.envelope.elapsed * 1000,
-                )} ms · ${BACKEND_LABELS[lastBind.backend]}`
-              : "Not bound yet."}
+            {lastBind ? costLineText(lastBind, planElapsedMs) : "Not bound yet."}
           </p>
         </section>
       </main>

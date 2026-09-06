@@ -105,6 +105,8 @@ export interface ApiErrorBody {
   path?: string;
   request_id?: string;
   detail?: string;
+  bucket?: number;
+  extra?: string;
 }
 
 export class ApiError extends Error {
@@ -201,6 +203,29 @@ export async function updateSpec(
   payload: SpecSavePayload,
 ): Promise<SpecOut> {
   return (await request(getToken, "PUT", `/api/specs/${chartId}`, payload)) as SpecOut;
+}
+
+/** BindOut plus the plan's own wall time (Studio ADR-0001 D2). */
+export interface PlanResponse extends BindResponse {
+  plan_elapsed_ms: number;
+}
+
+/** Strip bound rows from the envelope's input. Feeds the editor and
+ * `lastBind.content` — one helper, both consumers (Studio ADR-0001 D3). */
+export function frameFromEnvelope(
+  envelope: BindResponse,
+): Record<string, unknown> {
+  const frame: Record<string, unknown> = { ...envelope.input };
+  delete frame.data;
+  return frame;
+}
+
+/** A draft from an instruction: writes nothing. Studio sends no backend. */
+export async function planSpec(
+  getToken: GetToken,
+  payload: { instruction: string; source_id: string },
+): Promise<PlanResponse> {
+  return (await request(getToken, "POST", "/api/specs/plan", payload)) as PlanResponse;
 }
 
 /** The unsaved-frame bind: writes neither cache nor run. */
