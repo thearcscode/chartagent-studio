@@ -68,4 +68,4 @@ class Settings(BaseSettings):
     plan_concurrency: int = 2
     # pydantic-ai model string; the provider prefix names the API-key env var
     # (Studio ADR-0002). Bare, matching bind_row_cap — no STUDIO_ prefix.
-    planner_model: str = "anthropic:claude-sonnet-5"
+    planner_model: str = "anthropic:claude-sonnet-4-6"
