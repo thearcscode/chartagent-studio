@@ -25,5 +25,9 @@ export default defineConfig({
     url: "http://127.0.0.1:8000/api/health",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    env: {
+      ...process.env,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "test-dummy-key",
+    },
   },
 });

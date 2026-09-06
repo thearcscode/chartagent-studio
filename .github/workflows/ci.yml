@@ -8,7 +8,7 @@ on:
 env:
   # The library is resolved at this pinned git SHA in CI and deploys — never
   # at a contributor's working tree. The tokens diff reads the same pin.
-  LIBRARY_GIT_SHA: d04fc0c08af9a2b6efd9bb34b959146c19b541ef
+  LIBRARY_GIT_SHA: ce7a457271d681d23b0f52b9b1050d213b34919f
 
 jobs:
   python:
@@ -174,6 +174,8 @@ jobs:
       VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
       E2E_CLERK_USER_EMAIL: ${{ secrets.E2E_CLERK_USER_EMAIL }}
+      # Dummy: the agent is built at boot and the smoke never plans.
+      ANTHROPIC_API_KEY: test-dummy-key
     steps:
       - name: Require Clerk e2e secrets
         run: |

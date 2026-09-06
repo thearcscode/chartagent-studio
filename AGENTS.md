@@ -1,28 +1,30 @@
 # Chartagent Studio — agent guide
 
 The hosted product built on the `chartagent` library. **The server binds; the
-browser compiles.** No planner, no LLM, no generated code in this phase (P0).
+browser compiles.**
 
-This repo is self-contained code but not self-contained context. The design
-system, the ADRs, and the tickets all live in the library repo. Read them
+This repo is self-contained code but not self-contained context. The library's
+design system, ADRs, and `CONTEXT.md` live in the sibling checkout. Read them
 before implementing anything.
 
 ## Where things live
 
 | What | Where |
 | --- | --- |
-| Tickets (Studio P0) | GitHub issues on **`thearcscode/chartagent`** (the library repo, not this one): parent #63, children #72–#77. **GitHub is the only tracker — Linear is not used for this project, even if a Linear integration is configured; do not spend a step authenticating it.** Fetch with `gh issue view <n> --repo thearcscode/chartagent` — a bare `gh issue view <n>` in this repo fails with "Could not resolve to an issue". |
+| Tickets | GitHub issues on **this repo**. Parent #17 (instruction box), children #18–#20. **GitHub is the only tracker — Linear is not used for this project, even if a Linear integration is configured; do not spend a step authenticating it.** Fetch with `gh issue view <n>`. |
 | Vocabulary | `CONTEXT.md` in the library repo — read it first. |
-| Architecture decisions | `docs/adr/` in the library repo. For Studio: ADR-0006 (stack, request flow, pinning, refusals), ADR-0007 (five tables, bind cache, runs), ADR-0005 (the library surface this app consumes). |
+| Architecture decisions | `docs/adr/` in this repo for Studio (Studio ADR-0001, ADR-0002). Library ADRs stay in `../chartagent/docs/adr/`: ADR-0006 (stack, request flow, pinning, refusals), ADR-0007 (five tables, bind cache, runs), ADR-0005 (the library surface this app consumes), ADR-0020 (planner surface). |
 | Design system | `design/tokens.css` in the library repo is **canonical**; `design/README.md` carries the reasoning (two colour systems, type scale, rail hues are load-bearing). |
 | The library itself | Local checkout at `../chartagent` (sibling of this repo). |
 
 ## Hard rules (from the ADRs; violations fail review)
 
-- `dependencies = ["chartagent>=0.1"]` in `app/pyproject.toml` **never
-  changes**. Dev uses the editable path source; CI/deploy resolve the pinned
-  git SHA (`LIBRARY_GIT_SHA` in `.github/workflows/ci.yml`) via a sibling
-  checkout. No `sys.path` hacks, no vendored library copy.
+- The library dependency's *version constraint and source* never change
+  (`chartagent[anthropic]>=0.1` in `app/pyproject.toml`). Dev uses the
+  editable path source; CI/deploy resolve the pinned git SHA
+  (`LIBRARY_GIT_SHA` in `.github/workflows/ci.yml`) via a sibling checkout.
+  Asking the library for one of its own extras is not a change to the pin.
+  No `sys.path` hacks, no vendored library copy.
 - **No UI kit, no Tailwind, no CSS-in-JS.** Plain CSS custom properties only.
 - `web/src/tokens.css` is vendored **byte-identically** from the library's
   `design/tokens.css`; the source SHA is recorded in `web/src/tokens.source-sha`
@@ -50,7 +52,7 @@ cd web && npm run typecheck && npm run lint && npm test && npm run build
 ```bash
 cd app && uv sync                 # chartagent resolves from ../chartagent
 cd web && npm ci
-# app/.env needs CLERK_JWKS_URL; web/.env needs VITE_CLERK_PUBLISHABLE_KEY
+# app/.env needs CLERK_JWKS_URL and ANTHROPIC_API_KEY; web/.env needs VITE_CLERK_PUBLISHABLE_KEY
 # (see the .env.example files)
 cd app && uv run uvicorn studio.main:create_app --factory --reload
 cd web && npm run dev             # SPA on :5173, proxies /api to :8000
@@ -61,13 +63,14 @@ cd web && npm run dev             # SPA on :5173, proxies /api to :8000
 - Tickets are claimed, implemented, and reviewed per the library repo's
   `docs/agents/issue-tracker.md`. Branch per ticket. **PRs are stacked**:
   each ticket's branch merges into the previous ticket's branch while the
-  stack is open (feat/72 ← feat/73 ← feat/74), so `origin/main` lags the
+  stack is open (feat/18 ← feat/19 ← feat/20), so `origin/main` lags the
   real work. Branch off the tip of the stack, not `main` — check
   `gh pr list --state all` and the branch tips first.
-- Test seams are defined by the parent spec (#63, "Testing decisions"): the
-  HTTP API through the framework's test client, one Playwright smoke test,
-  component tests for client-side logic, the tokens diff. Do not re-test
-  library behaviour — test that Studio carries what the library returns.
+- Test seams are defined by the parent spec (#17, "Testing decisions"): the
+  HTTP API through the framework's test client, the chart agent on app
+  state, one Playwright smoke test, component tests for client-side logic,
+  the tokens diff. Do not re-test library behaviour — test that Studio
+  carries what the library returns.
 
 ## Environment notes (learned the hard way)
 

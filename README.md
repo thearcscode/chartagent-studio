@@ -1,9 +1,9 @@
 # Chartagent Studio
 
 The hosted product built on the [`chartagent`](https://github.com/thearcscode/chartagent)
-library. The server binds; the browser compiles. No planner, no LLM in this
-phase — a saved chart is a document, and re-rendering it against fresh data is
-a `$0.00` replay of the stored transform.
+library. The server binds; the browser compiles. A saved chart is a document,
+and re-rendering it against fresh data is a `$0.00` replay of the stored
+transform.
 
 ## Layout
 
@@ -19,8 +19,9 @@ built static assets.
 
 ## The library dependency
 
-`app/pyproject.toml` declares `dependencies = ["chartagent>=0.1"]` and never
-changes it. The source is supplied separately:
+`app/pyproject.toml` declares `dependencies = ["chartagent[anthropic]>=0.1"]`.
+The version constraint and source never change; asking the library for one of
+its own extras is not a change to the pin. The source is supplied separately:
 
 - **dev**: `[tool.uv.sources]` points at a local editable checkout
   (`../../chartagent`).
@@ -60,6 +61,8 @@ Environment:
 | `BIND_ROW_CAP` | app | bind row cap, default 100000 — raises rather than truncates |
 | `BIND_TIMEOUT_SECONDS` | app | DuckDB statement timeout passed to `bind`, default 30 |
 | `REQUEST_TIMEOUT_SECONDS` | app | whole-request backstop, default 120 |
+| `PLANNER_MODEL` | app | pydantic-ai model string, default `anthropic:claude-sonnet-5` |
+| `ANTHROPIC_API_KEY` | app | required at boot when `PLANNER_MODEL` is an Anthropic model; the provider prefix of `PLANNER_MODEL` names the variable (`OPENAI_API_KEY` for an OpenAI model) |
 | `STUDIO_TEST_DATABASE_URL` | tests | a disposable database the test session creates, migrates and truncates |
 
 ## Local services
