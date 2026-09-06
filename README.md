@@ -62,7 +62,7 @@ Environment:
 | `BIND_TIMEOUT_SECONDS` | app | DuckDB statement timeout passed to `bind`, default 30 |
 | `REQUEST_TIMEOUT_SECONDS` | app | whole-request backstop, default 120 |
 | `PLAN_CONCURRENCY` | app | concurrent plans, default 2 — overflow is 503 |
-| `PLANNER_MODEL` | app | pydantic-ai model string, default `anthropic:claude-sonnet-5` |
+| `PLANNER_MODEL` | app | pydantic-ai model string, default `anthropic:claude-sonnet-4-6` |
 | `ANTHROPIC_API_KEY` | app | required at boot when `PLANNER_MODEL` is an Anthropic model; the provider prefix of `PLANNER_MODEL` names the variable (`OPENAI_API_KEY` for an OpenAI model) |
 | `STUDIO_TEST_DATABASE_URL` | tests | a disposable database the test session creates, migrates and truncates |
 

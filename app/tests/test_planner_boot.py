@@ -18,12 +18,17 @@ from studio.main import create_app
 from tests.conftest import SigningKeys, make_app
 
 
-def _settings(*, planner_model: str = "anthropic:claude-sonnet-5") -> Settings:
+def _settings(*, planner_model: str = "anthropic:claude-sonnet-4-6") -> Settings:
     return Settings(
         clerk_jwks_url="https://clerk.test/.well-known/jwks.json",
         web_dist_dir=Path("/definitely/not/a/dist"),
         planner_model=planner_model,
     )
+
+
+def test_settings_default_planner_model_is_the_library_string() -> None:
+    default = Settings.model_fields["planner_model"].default
+    assert default == "anthropic:claude-sonnet-4-6"
 
 
 def test_create_app_raises_when_the_planner_key_is_absent(
