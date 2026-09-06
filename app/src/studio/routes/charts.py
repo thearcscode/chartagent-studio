@@ -17,6 +17,9 @@ the picture they back exactly as they were.
 The Library (#76) reads that cache and never binds: the list route carries
 each card's frame and pointer, the cache route serves the `{revision_id,
 rows}` object verbatim, and neither writes a run.
+
+A plan (#19) is a draft: `POST /api/specs/plan` calls the library planner
+once and writes nothing (Studio ADR-0001).
 """
 
 from __future__ import annotations
@@ -28,6 +31,8 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -48,10 +53,15 @@ from studio.auth import get_session
 from studio.config import Settings
 from studio.db import get_db
 from studio.diff import diff_documents, without_source_schema
-from studio.errors import RowCapExceededError, error_code_for
+from studio.errors import (
+    ModelVendorError,
+    PlanBusyError,
+    RowCapExceededError,
+    error_code_for,
+)
 from studio.ids import new_id
 from studio.models import BindCache, Chart, DataSource, Run, SpecRevision
-from studio.observe import log_bind
+from studio.observe import log_bind, log_plan
 from studio.remap import RemapRefusedError, apply_mapping, validate_mapping
 from studio.storage import ObjectStore, drop
 
@@ -131,6 +141,20 @@ class BindOut(BaseModel):
     elapsed: float
     warnings: list[AdvisoryOut]
     source_schema: dict[str, str] | None
+
+
+class PlanIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    instruction: str
+    source_id: uuid.UUID
+
+
+class PlanOut(BindOut):
+    """BindOut's keys plus the plan's own wall time (Studio ADR-0001 D2).
+    BindOut itself does not gain this field."""
+
+    plan_elapsed_ms: int
 
 
 class CacheOut(BaseModel):
@@ -864,6 +888,81 @@ def list_runs(
         )
         for run in runs
     ]
+
+
+@router.post("/specs/plan")
+def plan_spec(
+    payload: PlanIn,
+    request: Request,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> PlanOut:
+    """A draft: the library planner once, nothing written (Studio ADR-0001)."""
+    source = _owned_source(db, payload.source_id, session.owner_id)
+    settings = _settings(request)
+    store = _store(request)
+    agent = request.app.state.chart_agent
+    request_id: str | None = getattr(request.state, "request_id", None)
+    semaphore: threading.Semaphore = request.app.state.plan_semaphore
+    if not semaphore.acquire(blocking=False):
+        busy = PlanBusyError()
+        log_plan(
+            request_id=request_id,
+            backend=None,
+            outcome="error",
+            error_code=error_code_for(busy),
+        )
+        raise busy
+
+    backend: str | None = None
+    row_count: int | None = None
+    elapsed_ms: int | None = None
+    plan_elapsed_ms: int | None = None
+    outcome = "error"
+    error_code: str | None = None
+    try:
+        with _bind_data(store, source) as data:
+            started = time.perf_counter()
+            try:
+                result = agent.create_chart(data, payload.instruction)
+            except ChartAgentError as exc:
+                plan_elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
+                error_code = error_code_for(exc)
+                raise
+            except Exception as exc:
+                # Transport/auth/model-string errors are not ChartAgentError
+                # subclasses; wrapping is local to this call (Studio ADR-0001 D10).
+                plan_elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
+                wrapped = ModelVendorError(request_id=request_id)
+                error_code = error_code_for(wrapped)
+                raise wrapped from exc
+            wall_ms = round((time.perf_counter() - started) * 1000)
+        envelope = result.envelope
+        bind_ms = round(envelope.elapsed * 1000)
+        plan_elapsed_ms = max(0, wall_ms - bind_ms)
+        backend = str(envelope.backend)
+        row_count = envelope.row_count
+        elapsed_ms = bind_ms
+        if envelope.row_count > settings.bind_row_cap:
+            cap_error = RowCapExceededError(
+                row_count=envelope.row_count, cap=settings.bind_row_cap
+            )
+            error_code = error_code_for(cap_error)
+            raise cap_error
+        bind_out = _bind_out(envelope)
+        outcome = "ok"
+        return PlanOut(**bind_out.model_dump(), plan_elapsed_ms=plan_elapsed_ms)
+    finally:
+        semaphore.release()
+        log_plan(
+            request_id=request_id,
+            backend=backend,
+            outcome=outcome,
+            row_count=row_count,
+            elapsed_ms=elapsed_ms,
+            plan_elapsed_ms=plan_elapsed_ms,
+            error_code=error_code,
+        )
 
 
 @router.post("/specs/bind")

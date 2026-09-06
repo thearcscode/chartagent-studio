@@ -1,3 +1,5 @@
+import threading
+
 from chartagent import create_chart_agent
 from chartagent.errors import ChartAgentError
 from fastapi import FastAPI
@@ -11,9 +13,11 @@ from studio.config import Settings, require_planner_api_key
 from studio.db import build_session_factory
 from studio.describe import DuckDbDescriber
 from studio.errors import (
+    ModelVendorError,
+    PlanBusyError,
     RowCapExceededError,
     chartagent_error_handler,
-    row_cap_error_handler,
+    mapped_error_handler,
     unmapped_error_handler,
 )
 from studio.observe import RequestContextMiddleware, configure_logging
@@ -66,14 +70,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.object_store = LocalObjectStore(settings.object_store_dir)
     app.state.source_describer = DuckDbDescriber()
     app.state.chart_agent = create_chart_agent(model=settings.planner_model)
+    app.state.plan_semaphore = threading.Semaphore(settings.plan_concurrency)
 
     configure_logging()
     app.add_middleware(RequestContextMiddleware)
     # The one error-mapping table (ADR-0006 D13): typed library errors and
-    # Studio's own row-cap refusal map to structured bodies; anything else is
-    # a 500 carrying only the request id.
+    # Studio's own refusals map to structured bodies; anything else is a 500
+    # carrying only the request id.
     app.add_exception_handler(ChartAgentError, chartagent_error_handler)
-    app.add_exception_handler(RowCapExceededError, row_cap_error_handler)
+    app.add_exception_handler(RowCapExceededError, mapped_error_handler)
+    app.add_exception_handler(ModelVendorError, mapped_error_handler)
+    app.add_exception_handler(PlanBusyError, mapped_error_handler)
     app.add_exception_handler(Exception, unmapped_error_handler)
 
     app.include_router(health.router, prefix="/api")

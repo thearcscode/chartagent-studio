@@ -128,6 +128,7 @@ def make_app(
     object_store_dir: Path | None = None,
     upload_max_bytes: int | None = None,
     bind_row_cap: int | None = None,
+    plan_concurrency: int | None = None,
 ) -> FastAPI:
     overrides: dict[str, Any] = {}
     if database_url is not None:
@@ -138,6 +139,8 @@ def make_app(
         overrides["upload_max_bytes"] = upload_max_bytes
     if bind_row_cap is not None:
         overrides["bind_row_cap"] = bind_row_cap
+    if plan_concurrency is not None:
+        overrides["plan_concurrency"] = plan_concurrency
     settings = Settings(
         clerk_jwks_url="https://clerk.test/.well-known/jwks.json",
         clerk_authorized_parties=authorized_parties or [],
