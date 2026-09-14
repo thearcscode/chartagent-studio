@@ -9,6 +9,7 @@ not shipped product code), so it is loaded here by path rather than import.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -35,14 +36,16 @@ _spec.loader.exec_module(scan_saved_frames)
 # skip that one assertion, with the reason on the record, rather than assert
 # something CI's intentionally-old pin makes false. `transform.model` itself
 # is new in #147 (the pinned SHA still has `transform.schema` and an untyped
-# `transform: dict[str, Any]` on the frame), so the import that would tell us
-# is exactly the thing that may not exist yet — guard it rather than let
-# collection itself blow up on the pinned library.
+# `transform: dict[str, Any]` on the frame), so the module that would tell us
+# is exactly the thing that may not exist yet. Imported by dotted string,
+# not `from ... import ...`: a static import mypy checks against whatever is
+# actually installed would fail outright on the pinned SHA, and a silencing
+# comment would go stale (flagged as unused) once a newer library resolves.
+# A dynamic import isn't statically resolved either way.
 try:
-    from chartagent.transform.model import SortItem
-
-    _REJECTS_OLD_SORT_SHAPE = "dir" in SortItem.model_fields
-except ImportError:
+    _transform_model: Any = importlib.import_module("chartagent.transform.model")
+    _REJECTS_OLD_SORT_SHAPE = "dir" in _transform_model.SortItem.model_fields
+except (ImportError, AttributeError):
     _REJECTS_OLD_SORT_SHAPE = False
 
 
