@@ -45,7 +45,7 @@ from chartagent import Backend, InputFrame, bind, canonical_json, flint_bundle
 from chartagent.errors import ChartAgentError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as OrmSession
 
 from studio.auth import Session as AuthSession
@@ -288,6 +288,21 @@ def _current_revision(db: OrmSession, chart: Chart) -> SpecRevision:
     revision = db.get(SpecRevision, chart.current_revision_id)
     assert revision is not None  # the pointer is never null once set
     return revision
+
+
+def _next_revision_number(db: OrmSession, chart: Chart) -> int:
+    """`max(revision_number) + 1` for the chart (#16). A revert repoints
+    `current` without touching the row it left behind, so the next honest
+    save has to number past every row that still exists, not past
+    `current.revision_number` — otherwise it collides with a revision a
+    revert stepped back from. List and revert stay pointer-based; this is
+    only for the row a save is about to insert."""
+    highest = db.scalar(
+        select(func.max(SpecRevision.revision_number)).where(
+            SpecRevision.chart_id == chart.id
+        )
+    )
+    return (highest or 0) + 1
 
 
 def _owned_revision(
@@ -658,7 +673,7 @@ def update_spec(
         id=new_id(),
         chart_id=chart.id,
         owner_id=session.owner_id,
-        revision_number=current.revision_number + 1,
+        revision_number=_next_revision_number(db, chart),
         content_hash=content_hash,
         content=doc,
         kind="frame",
@@ -836,7 +851,7 @@ def remap_preview(
     hunks, source_schema_only = diff_documents(revision.content, candidate)
     return RemapPreviewOut(
         from_revision=revision.revision_number,
-        to_revision=revision.revision_number + 1,
+        to_revision=_next_revision_number(db, chart),
         hunks=[HunkOut.model_validate(hunk) for hunk in hunks],
         source_schema_only=source_schema_only,
         content=candidate,
