@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 _APP_DIR = Path(__file__).resolve().parents[1]
 
 _spec = importlib.util.spec_from_file_location(
@@ -24,6 +26,24 @@ assert _spec is not None and _spec.loader is not None
 scan_saved_frames = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = scan_saved_frames
 _spec.loader.exec_module(scan_saved_frames)
+
+# Whichever chartagent this test session resolves also decides what `scan()`
+# actually rejects. AGENTS.md pins CI/deploy to LIBRARY_GIT_SHA — deliberately
+# *before* #147 until a human bumps it (that bump is the decision this ticket
+# feeds) — while dev's editable path source tracks the sibling checkout as-is.
+# So only a library past #147 rejects the old `{field, order}` sort shape;
+# skip that one assertion, with the reason on the record, rather than assert
+# something CI's intentionally-old pin makes false. `transform.model` itself
+# is new in #147 (the pinned SHA still has `transform.schema` and an untyped
+# `transform: dict[str, Any]` on the frame), so the import that would tell us
+# is exactly the thing that may not exist yet — guard it rather than let
+# collection itself blow up on the pinned library.
+try:
+    from chartagent.transform.model import SortItem
+
+    _REJECTS_OLD_SORT_SHAPE = "dir" in SortItem.model_fields
+except ImportError:
+    _REJECTS_OLD_SORT_SHAPE = False
 
 
 class FakeScalars(list[Any]):
@@ -60,6 +80,11 @@ _VALID_CHART_SPEC = {
 }
 
 
+@pytest.mark.skipif(
+    not _REJECTS_OLD_SORT_SHAPE,
+    reason="needs the chartagent version past #147 (typed transform sort); "
+    "the pinned CI library predates it until Studio's upgrade lands",
+)
 def test_old_sort_shape_fails_with_the_field_path_the_ticket_names() -> None:
     old_shape = {
         "chart_spec": _VALID_CHART_SPEC,
