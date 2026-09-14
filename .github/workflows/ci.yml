@@ -8,7 +8,7 @@ on:
 env:
   # The library is resolved at this pinned git SHA in CI and deploys — never
   # at a contributor's working tree. The tokens diff reads the same pin.
-  LIBRARY_GIT_SHA: ce7a457271d681d23b0f52b9b1050d213b34919f
+  LIBRARY_GIT_SHA: b7ac62295f4303916fa1f2fd5faa12432b5fa5fc
 
 jobs:
   python:

@@ -1,7 +1,7 @@
 """chartagent-studio#26: the saved-frame scan finds the one shape fault the
-new chartagent.InputFrame rejects that the currently-pinned one still opens —
-a transform sort item written as ``{field, order}`` instead of the now-typed
-``{field, dir}`` (ADR-0023 Decision 5) — and leaves everything else alone.
+typed chartagent.InputFrame rejects — a transform sort item written as
+``{field, order}`` instead of ``{field, dir}`` (ADR-0023 Decision 5) — and
+leaves everything else alone.
 
 `scripts/` sits outside `src/studio` on purpose (AGENTS.md: a one-off tool,
 not shipped product code), so it is loaded here by path rather than import.
@@ -9,14 +9,11 @@ not shipped product code), so it is loaded here by path rather than import.
 
 from __future__ import annotations
 
-import importlib
 import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-
-import pytest
 
 _APP_DIR = Path(__file__).resolve().parents[1]
 
@@ -27,26 +24,6 @@ assert _spec is not None and _spec.loader is not None
 scan_saved_frames = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = scan_saved_frames
 _spec.loader.exec_module(scan_saved_frames)
-
-# Whichever chartagent this test session resolves also decides what `scan()`
-# actually rejects. AGENTS.md pins CI/deploy to LIBRARY_GIT_SHA — deliberately
-# *before* #147 until a human bumps it (that bump is the decision this ticket
-# feeds) — while dev's editable path source tracks the sibling checkout as-is.
-# So only a library past #147 rejects the old `{field, order}` sort shape;
-# skip that one assertion, with the reason on the record, rather than assert
-# something CI's intentionally-old pin makes false. `transform.model` itself
-# is new in #147 (the pinned SHA still has `transform.schema` and an untyped
-# `transform: dict[str, Any]` on the frame), so the module that would tell us
-# is exactly the thing that may not exist yet. Imported by dotted string,
-# not `from ... import ...`: a static import mypy checks against whatever is
-# actually installed would fail outright on the pinned SHA, and a silencing
-# comment would go stale (flagged as unused) once a newer library resolves.
-# A dynamic import isn't statically resolved either way.
-try:
-    _transform_model: Any = importlib.import_module("chartagent.transform.model")
-    _REJECTS_OLD_SORT_SHAPE = "dir" in _transform_model.SortItem.model_fields
-except (ImportError, AttributeError):
-    _REJECTS_OLD_SORT_SHAPE = False
 
 
 class FakeScalars(list[Any]):
@@ -83,11 +60,6 @@ _VALID_CHART_SPEC = {
 }
 
 
-@pytest.mark.skipif(
-    not _REJECTS_OLD_SORT_SHAPE,
-    reason="needs the chartagent version past #147 (typed transform sort); "
-    "the pinned CI library predates it until Studio's upgrade lands",
-)
 def test_old_sort_shape_fails_with_the_field_path_the_ticket_names() -> None:
     old_shape = {
         "chart_spec": _VALID_CHART_SPEC,

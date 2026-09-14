@@ -11,7 +11,7 @@ before implementing anything.
 
 | What | Where |
 | --- | --- |
-| Tickets | GitHub issues on **this repo**. Parent #17 (instruction box), children #18–#20. **GitHub is the only tracker — Linear is not used for this project, even if a Linear integration is configured; do not spend a step authenticating it.** Fetch with `gh issue view <n>`. |
+| Tickets | GitHub issues on **this repo**. The instruction box shipped as #17 / #18–#20. **GitHub is the only tracker — Linear is not used for this project, even if a Linear integration is configured; do not spend a step authenticating it.** Fetch with `gh issue view <n>`. |
 | Vocabulary | `CONTEXT.md` in the library repo — read it first. |
 | Architecture decisions | `docs/adr/` in this repo for Studio (Studio ADR-0001, ADR-0002). Library ADRs stay in `../chartagent/docs/adr/`: ADR-0006 (stack, request flow, pinning, refusals), ADR-0007 (five tables, bind cache, runs), ADR-0005 (the library surface this app consumes), ADR-0020 (planner surface). |
 | Design system | `design/tokens.css` in the library repo is **canonical**; `design/README.md` carries the reasoning (two colour systems, type scale, rail hues are load-bearing). |
@@ -66,7 +66,7 @@ cd web && npm run dev             # SPA on :5173, proxies /api to :8000
   stack is open (feat/18 ← feat/19 ← feat/20), so `origin/main` lags the
   real work. Branch off the tip of the stack, not `main` — check
   `gh pr list --state all` and the branch tips first.
-- Test seams are defined by the parent spec (#17, "Testing decisions"): the
+- Test seams are defined by the instruction-box spec (#17, "Testing decisions"): the
   HTTP API through the framework's test client, the chart agent on app
   state, one Playwright smoke test, component tests for client-side logic,
   the tokens diff. Do not re-test library behaviour — test that Studio
