@@ -4,9 +4,9 @@ chartagent-studio#26. Settled in thearcscode/chartagent#139 — ADR-0023
 Decision 5: after the library types `x_chartagent.transform` (#147), a
 stored frame with a data-free shape fault (for example a sort item written
 as ``{field, order}`` instead of the now-typed ``{field, dir}``) fails when
-it is *parsed*, not only when it is bound. This scan finds those frames
-before Studio moves to a chartagent version past #147, so a human can decide
-what happens to them ahead of the upgrade.
+it is *parsed*, not only when it is bound. Studio #26 confirmed no deployed
+environment yet. Keep this tool for the first one, and re-run it before a
+later pin bump that tightens parse further.
 
 Read-only: every row is a SELECT. Nothing is written, migrated, or re-saved
 (chartagent ADR-0010 D1) — that is a separate, later decision.
@@ -16,13 +16,12 @@ pointing ``--database-url`` (or ``DATABASE_URL``) at each in turn:
 
     uv run --no-sync python scripts/scan_saved_frames.py
     uv run --no-sync python scripts/scan_saved_frames.py \
-        --database-url postgresql+psycopg://... --out report-prod.json
+        --database-url postgresql+psycopg://... --out report.md
 
-The chartagent import must resolve the *new* library (the one containing
-#147) — dev's `[tool.uv.sources]` editable path already does this, so no
-separate environment is needed there; point `--database-url` at a real
-environment while keeping that resolution. Only `chartagent.InputFrame` is
-used — the library's public API.
+The chartagent import must resolve the library at the pin being scanned
+against. Dev's `[tool.uv.sources]` editable path tracks the sibling
+checkout; CI/deploy resolve `LIBRARY_GIT_SHA`. Only `chartagent.InputFrame`
+is used — the library's public API.
 
 Out of scope (chartagent-studio#26): recipes (``kind = 'recipe'``) — nothing
 saves those yet.
