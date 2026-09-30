@@ -77,21 +77,20 @@ _ROWS = pa.table(
         "value": pa.array([1.5, float("nan"), 4.0], type=pa.float64()),
     }
 )
-_TYPES = {"day": "DATE", "value": "DOUBLE"}
+_DUCKDB_TYPES = {"day": "DATE", "value": "DOUBLE"}
+
+
+def _fixture(module: str) -> FixtureDocument:
+    return FixtureDocument(
+        document=ChartDocument(
+            module=module, styles=None, libraries=(), contract_version=1
+        ),
+        rows=_ROWS,
+        duckdb_types=_DUCKDB_TYPES,
+    )
+
 
 FIXTURES: dict[str, FixtureDocument] = {
-    "drawing": FixtureDocument(
-        document=ChartDocument(
-            module=_DRAWING_MODULE, styles=None, libraries=(), contract_version=1
-        ),
-        rows=_ROWS,
-        duckdb_types=_TYPES,
-    ),
-    "throwing": FixtureDocument(
-        document=ChartDocument(
-            module=_THROWING_MODULE, styles=None, libraries=(), contract_version=1
-        ),
-        rows=_ROWS,
-        duckdb_types=_TYPES,
-    ),
+    "drawing": _fixture(_DRAWING_MODULE),
+    "throwing": _fixture(_THROWING_MODULE),
 }
