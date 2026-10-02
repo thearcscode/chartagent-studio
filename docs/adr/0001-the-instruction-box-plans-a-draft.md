@@ -79,12 +79,14 @@ the recipe in canonical dict form, nothing bound, no row cap applied. With no bi
 time to subtract, a recipe's `plan_elapsed_ms` is the full wall time around
 `create_chart`.
 
-**Amendment (#49):** a recipe answer auto-saves and binds once, because it has no frame
+**Amendment (#49, 2026-10-02):** a recipe answer auto-saves and binds once, because it has no frame
 to hold as a draft: the box posts the recipe to the create route with the planned source
 and no title, refreshes the saved chart against that source, and navigates to it, leaving
 the editor, draft state, compile path and backend picker alone. A refresh failure after the
 save does not roll it back; the chart page shows *Refresh to bind* with the shared
-failure message. A frame answer is unchanged: an unsaved draft, no save call.
+failure message. A frame answer is unchanged: an unsaved draft, no save call. The dirty-editor
+replace confirmation still runs before the plan call, since the answer's kind is not
+known until the library replies.
 
 ### 3. The client strips `data`, not the server
 
