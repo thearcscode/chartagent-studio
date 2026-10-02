@@ -54,6 +54,7 @@ import {
   revertSpec,
   remapPreview,
   savedBind,
+  savedRecipeRefresh,
   updateSpec,
   uploadSource,
   type AdvisoryOut,
@@ -352,6 +353,24 @@ export function ChartPage() {
     return spec === null || editorDiffersFrom(spec);
   }, [editorDiffersFrom, spec]);
 
+  /** A custom-rail answer has no frame to hold as a draft, so it saves and
+   * binds once, then opens the chart page (Studio ADR-0001, #49). No title:
+   * the server's "Custom · {source}" default applies. A refresh failure
+   * after the save does not roll it back — the chart page shows it. */
+  const saveAndOpenRecipe = useCallback(
+    async (recipe: Record<string, unknown>, planSourceId: string) => {
+      const saved = await createSpec(getToken, { content: recipe, source_id: planSourceId });
+      let failure: RefreshFailure | null = null;
+      try {
+        await savedRecipeRefresh(getToken, saved.id, planSourceId);
+      } catch (error) {
+        failure = refreshFailure(error);
+      }
+      navigate(`/charts/${saved.id}`, { state: failure === null ? undefined : { refreshFailure: failure } });
+    },
+    [getToken, navigate],
+  );
+
   /** Plan a draft: one library call, nothing written. The returned frame
    * (rows stripped) feeds the editor and lastBind; the picture travels the
    * existing compile-and-draw path (Studio ADR-0001). */
@@ -381,10 +400,15 @@ export function ChartPage() {
     setServerWarnings([]);
     setCompileWarnings([]);
     try {
-      const envelope = await planSpec(getToken, {
+      const answer = await planSpec(getToken, {
         instruction: text,
         source_id: sourceId,
       });
+      if (answer.kind === "recipe") {
+        await saveAndOpenRecipe(answer.recipe, sourceId);
+        return;
+      }
+      const envelope = answer;
       const frame = frameFromEnvelope(envelope);
       const chosen = envelope.backend as Backend;
       updateEditorText(JSON.stringify(frame, null, 2));
@@ -417,6 +441,7 @@ export function ChartPage() {
     emptyChartArea,
     getToken,
     instruction,
+    saveAndOpenRecipe,
     sourceId,
     updateEditorText,
   ]);

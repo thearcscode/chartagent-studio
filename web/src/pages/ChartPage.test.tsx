@@ -31,6 +31,7 @@ vi.mock("../lib/charts-api", async (importOriginal) => {
     listSources: vi.fn(),
     previewBind: vi.fn(),
     savedBind: vi.fn(),
+    savedRecipeRefresh: vi.fn(),
     planSpec: vi.fn(),
     createSpec: vi.fn(),
     updateSpec: vi.fn(),
@@ -54,7 +55,7 @@ vi.mock("../lib/flint", async (importOriginal) => {
 
 vi.mock("../lib/renderers", () => ({ drawChart: vi.fn() }));
 
-import { createSpec, diffRevisions, getSpec, listRevisions, listSources, planSpec, previewBind, remapPreview, revertSpec, savedBind, updateSpec } from "../lib/charts-api";
+import { createSpec, diffRevisions, getSpec, listRevisions, listSources, planSpec, previewBind, remapPreview, revertSpec, savedBind, savedRecipeRefresh, updateSpec } from "../lib/charts-api";
 import { loadFlint } from "../lib/flint";
 
 afterEach(cleanup);
@@ -1212,3 +1213,107 @@ describe("ChartPage plan errors", () => {
 });
 
 
+
+describe("ChartPage instruction box, custom-rail answer", () => {
+  const RECIPE = { kind: "recipe", recipe: { document: "<html></html>" }, plan_elapsed_ms: 900 };
+  const SAVED_RECIPE = { ...SAVED_SPEC, id: "recipe-chart-1", kind: "recipe" };
+
+  function renderWithOpenRoute() {
+    return render(
+      <MemoryRouter initialEntries={["/charts/new"]}>
+        <Routes>
+          <Route path="/charts/new" element={<ChartPage />} />
+          <Route path="/charts/:chartId" element={<p>opened chart</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  async function plan() {
+    renderWithOpenRoute();
+    await fillInstruction();
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+  }
+
+  beforeEach(() => {
+    vi.mocked(listSources).mockResolvedValue([SOURCE]);
+    vi.mocked(loadFlint).mockResolvedValue(PLAN_FLINT);
+    vi.mocked(planSpec).mockReset().mockResolvedValue(RECIPE as never);
+    vi.mocked(createSpec).mockReset().mockResolvedValue(SAVED_RECIPE);
+    vi.mocked(savedRecipeRefresh).mockReset().mockResolvedValue({
+      rows: [],
+      row_count: 0,
+      elapsed: 0.01,
+      warnings: [],
+    });
+    vi.mocked(previewBind).mockClear();
+    vi.mocked(drawChart).mockClear();
+  });
+
+  it("saves with the planned source and no title, refreshes against it, then opens the chart", async () => {
+    await plan();
+    expect(await screen.findByText("opened chart")).toBeTruthy();
+    expect(vi.mocked(createSpec).mock.calls).toEqual([
+      [getToken, { content: RECIPE.recipe, source_id: SOURCE.id }],
+    ]);
+    expect(vi.mocked(savedRecipeRefresh).mock.calls).toEqual([
+      [getToken, "recipe-chart-1", SOURCE.id],
+    ]);
+    expect(vi.mocked(createSpec).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(savedRecipeRefresh).mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(vi.mocked(previewBind)).not.toHaveBeenCalled();
+    expect(vi.mocked(drawChart)).not.toHaveBeenCalled();
+  });
+
+  it("keeps Planning… visible through the save and bind", async () => {
+    let release: () => void = () => undefined;
+    vi.mocked(createSpec).mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = () => resolve(SAVED_RECIPE);
+      }),
+    );
+    await plan();
+    expect(await screen.findByText(/planning…/i)).toBeTruthy();
+    expect(vi.mocked(savedRecipeRefresh)).not.toHaveBeenCalled();
+    release();
+    expect(await screen.findByText("opened chart")).toBeTruthy();
+  });
+
+  it("shows a save refusal in the chart area and makes no refresh call", async () => {
+    vi.mocked(createSpec).mockRejectedValueOnce(
+      new ApiError(422, { error: "pin_mismatch", message: "pinned libraries cannot save this" }),
+    );
+    await plan();
+    expect(await screen.findByText(/pinned libraries cannot save this/i)).toBeTruthy();
+    expect(vi.mocked(savedRecipeRefresh)).not.toHaveBeenCalled();
+    expect(screen.queryByText("opened chart")).toBeNull();
+    expect((screen.getByLabelText(/input frame/i) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("still navigates when the refresh fails after the save", async () => {
+    vi.mocked(savedRecipeRefresh).mockRejectedValueOnce(
+      new ApiError(502, { error: "bind_failed", message: "bind blew up" }),
+    );
+    await plan();
+    expect(await screen.findByText("opened chart")).toBeTruthy();
+    expect(vi.mocked(createSpec)).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask to replace the editor", async () => {
+    const confirm = vi.spyOn(window, "confirm");
+    await plan();
+    await screen.findByText("opened chart");
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("leaves a frame answer as an unsaved draft", async () => {
+    vi.mocked(planSpec).mockResolvedValueOnce(plannedEnvelope());
+    vi.mocked(previewBind).mockResolvedValue({ ...honestEnvelope(3), backend: "vegalite" });
+    await plan();
+    expect(await screen.findByText(/planner chose/i)).toBeTruthy();
+    expect(vi.mocked(createSpec)).not.toHaveBeenCalled();
+    expect(vi.mocked(savedRecipeRefresh)).not.toHaveBeenCalled();
+  });
+});
