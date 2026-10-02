@@ -30,6 +30,8 @@ from chartagent.errors import (
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
+from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
+
 logger = logging.getLogger("studio")
 
 
@@ -132,6 +134,18 @@ def _row_cap(exc: RowCapExceededError) -> tuple[int, dict[str, Any]]:
     )
 
 
+def _pinned_libraries(exc: PinnedLibrariesError) -> tuple[int, dict[str, Any]]:
+    return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
+        str(exc), "pinned_libraries_unsupported", libraries=exc.libraries
+    )
+
+
+def _recipe_diff(exc: RecipeOperationUnsupportedError) -> tuple[int, dict[str, Any]]:
+    return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
+        str(exc), "recipe_operation_unsupported"
+    )
+
+
 def _inexpressible(exc: InexpressibleRequestError) -> tuple[int, dict[str, Any]]:
     return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
         str(exc), "inexpressible_request", bucket=exc.bucket
@@ -183,6 +197,8 @@ _MAPPERS: dict[type[Exception], Callable[[Any], tuple[int, dict[str, Any]]]] = {
     RawSqlRejectedError: _raw_sql_rejected,
     TransformError: _transform,
     RowCapExceededError: _row_cap,
+    PinnedLibrariesError: _pinned_libraries,
+    RecipeOperationUnsupportedError: _recipe_diff,
     InexpressibleRequestError: _inexpressible,
     UnanswerableInstructionError: _unanswerable,
     PlannerFailureError: _planner_failure,
