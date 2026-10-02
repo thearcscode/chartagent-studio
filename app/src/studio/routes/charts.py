@@ -14,6 +14,11 @@ Refresh (#75) is not a separate operation: it is the same one bind with
 refresh writes the error run and leaves the cache, the default source and
 the picture they back exactly as they were.
 
+Refreshing a custom-rail chart (#40) is the same route dispatching on the
+current revision's kind: `bind_recipe` behind the same timeout and row cap,
+the same cache write, a run with a null backend. Studio does not run the
+transform, the drift check or the serialisation.
+
 The Library (#76) reads that cache and never binds: the list route carries
 each card's frame and pointer, the cache route serves the `{revision_id,
 rows}` object verbatim, and neither writes a run.
@@ -46,6 +51,7 @@ from chartagent import (
     ChartRecipe,
     InputFrame,
     bind,
+    bind_recipe,
     canonical_json,
     flint_bundle,
 )
@@ -126,7 +132,9 @@ class PreviewBindIn(BaseModel):
 class SavedBindIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    backend: Backend
+    # Required on the frame rail, ignored on the recipe rail: a custom-rail
+    # chart has no backend (ADR-0018 D8).
+    backend: Backend | None = None
     source_id: uuid.UUID | None = None
     # `refresh` (#75) is the same one bind with a different audit label: the
     # saved frame against new bytes, no revision, no model.
@@ -145,6 +153,19 @@ class BindOut(BaseModel):
     flint_version: str
     backend: str
     input: dict[str, Any]
+    row_count: int
+    elapsed: float
+    warnings: list[AdvisoryOut]
+    source_schema: dict[str, str] | None
+
+
+class RecipeBindOut(BaseModel):
+    """What `bind_recipe` returns, carried: the wire rows, the recipe's
+    `theme_spec` as stored (not validated, not applied), and the library's
+    diagnostics. No flint version or backend — the custom rail has neither."""
+
+    rows: list[dict[str, Any]]
+    theme_spec: str | dict[str, Any] | None
     row_count: int
     elapsed: float
     warnings: list[AdvisoryOut]
@@ -390,14 +411,15 @@ def _write_cache(
     chart: Chart,
     revision: SpecRevision,
     source: DataSource,
-    block: BindBlock,
+    rows: list[dict[str, Any]],
+    elapsed_ms: int,
 ) -> bool:
     """Cache row plus the sibling object `{revision_id, rows}` — written in
     the same request as the save or bind (ADR-0007 D6). The object goes down
     first; a store failure is logged and skips the cache (and its `save`
     run), never fails the save or bind itself (ADR-0007 §4)."""
     payload = json.dumps(
-        {"revision_id": str(revision.id), "rows": block.rows}
+        {"revision_id": str(revision.id), "rows": rows}
     ).encode()
     cache_key = f"{chart.owner_id}/charts/{chart.id}/last_bind.json"
     try:
@@ -418,8 +440,8 @@ def _write_cache(
         db.add(cache)
     cache.revision_id = revision.id
     cache.source_id = source.id
-    cache.row_count = len(block.rows)
-    cache.elapsed_ms = block.elapsed_ms
+    cache.row_count = len(rows)
+    cache.elapsed_ms = elapsed_ms
     cache.bound_at = datetime.now(UTC)
     return True
 
@@ -431,7 +453,7 @@ def _record_run(
     chart: Chart,
     revision: SpecRevision | None,
     source: DataSource | None,
-    backend: str,
+    backend: str | None,
     trigger: str,
     outcome: Literal["ok", "error"],
     row_count: int | None = None,
@@ -473,7 +495,13 @@ def _save_with_cache(
     if block is None or not _cache_honest(doc, block):
         return
     if _write_cache(
-        db, store, chart=chart, revision=revision, source=source, block=block
+        db,
+        store,
+        chart=chart,
+        revision=revision,
+        source=source,
+        rows=block.rows,
+        elapsed_ms=block.elapsed_ms,
     ):
         _record_run(
             db,
@@ -546,6 +574,87 @@ def _bind_out(envelope: Any) -> BindOut:
         ],
         source_schema=(
             dict(envelope.source_schema) if envelope.source_schema is not None else None
+        ),
+    )
+
+
+class _Bound(BaseModel):
+    """What a saved bind carries out of either rail: the wire rows the cache
+    stores, the diagnostics the run records, and the response body."""
+
+    rows: list[dict[str, Any]]
+    row_count: int
+    elapsed_ms: int
+    warnings: list[AdvisoryOut]
+    out: BindOut | RecipeBindOut
+
+
+def _do_bind_frame(
+    *,
+    content: dict[str, Any],
+    source: DataSource,
+    backend: Backend,
+    settings: Settings,
+    store: ObjectStore,
+) -> _Bound:
+    envelope = _do_bind(
+        content=content,
+        source=source,
+        backend=backend,
+        settings=settings,
+        store=store,
+    )
+    out = _bind_out(envelope)
+    return _Bound(
+        rows=envelope.input["data"]["values"],
+        row_count=envelope.row_count,
+        elapsed_ms=int(round(envelope.elapsed * 1000)),
+        warnings=out.warnings,
+        out=out,
+    )
+
+
+def _theme_out(theme_spec: Any) -> str | dict[str, Any] | None:
+    """The recipe's theme as stored — a name or an object — carried, never
+    validated against the pin or applied (ADR-0018 D12)."""
+    if theme_spec is None or isinstance(theme_spec, str):
+        return theme_spec
+    result: dict[str, Any] = theme_spec.model_dump(mode="json", exclude_none=True)
+    return result
+
+
+def _do_bind_recipe(
+    *,
+    recipe: ChartRecipe,
+    source: DataSource,
+    settings: Settings,
+    store: ObjectStore,
+) -> _Bound:
+    """The custom rail's bind: the library's `bind_recipe` behind the same
+    timeout and row cap as the frame bind. It never reads the document and
+    never touches a model (ADR-0018 D6, D8)."""
+    with _bind_data(store, source) as data:
+        bound = bind_recipe(recipe, data, timeout=settings.bind_timeout_seconds)
+    if bound.row_count > settings.bind_row_cap:
+        raise RowCapExceededError(
+            row_count=bound.row_count, cap=settings.bind_row_cap
+        )
+    warnings = [AdvisoryOut(code=w.code, message=w.message) for w in bound.warnings]
+    rows = list(bound.rows)
+    return _Bound(
+        rows=rows,
+        row_count=bound.row_count,
+        elapsed_ms=int(round(bound.elapsed * 1000)),
+        warnings=warnings,
+        out=RecipeBindOut(
+            rows=rows,
+            theme_spec=_theme_out(bound.theme_spec),
+            row_count=bound.row_count,
+            elapsed=bound.elapsed,
+            warnings=warnings,
+            source_schema=(
+                dict(bound.source_schema) if bound.source_schema is not None else None
+            ),
         ),
     )
 
@@ -1055,13 +1164,25 @@ def saved_bind(
     request: Request,
     session: Annotated[AuthSession, Depends(get_session)],
     db: Annotated[OrmSession, Depends(get_db)],
-) -> BindOut:
+) -> BindOut | RecipeBindOut:
     """The user-initiated bind on a saved chart: writes a `runs` row either
-    way, and replaces the cache on success (ADR-0007 D6/D8)."""
+    way, and replaces the cache on success (ADR-0007 D6/D8). Dispatches on the
+    current revision's kind: a frame binds with `bind`, a recipe with
+    `bind_recipe` and a null backend (ADR-0018 D8)."""
     chart = _owned_chart(db, chart_id, session.owner_id)
     revision = _current_revision(db, chart)
+    recipe: ChartRecipe | None = None
     if revision.kind == "recipe":
-        raise RecipeOperationUnsupportedError  # recipe bind is a later ticket
+        recipe = ChartRecipe.from_dict(revision.content)
+        ensure_supported(recipe)
+        backend: Backend | None = None
+    else:
+        if payload.backend is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="backend is required to bind a chart",
+            )
+        backend = payload.backend
     source_id = payload.source_id or chart.default_source_id
     if source_id is None:
         raise HTTPException(
@@ -1072,13 +1193,22 @@ def saved_bind(
 
     request_id: str | None = getattr(request.state, "request_id", None)
     try:
-        envelope = _do_bind(
-            content=revision.content,
-            source=source,
-            backend=payload.backend,
-            settings=_settings(request),
-            store=_store(request),
-        )
+        if recipe is not None:
+            bound: _Bound = _do_bind_recipe(
+                recipe=recipe,
+                source=source,
+                settings=_settings(request),
+                store=_store(request),
+            )
+        else:
+            assert backend is not None
+            bound = _do_bind_frame(
+                content=revision.content,
+                source=source,
+                backend=backend,
+                settings=_settings(request),
+                store=_store(request),
+            )
     except (ChartAgentError, RowCapExceededError) as exc:
         _record_run(
             db,
@@ -1086,7 +1216,7 @@ def saved_bind(
             chart=chart,
             revision=revision,
             source=source,
-            backend=payload.backend,
+            backend=backend,
             trigger=payload.trigger,
             outcome="error",
             error=exc,
@@ -1095,7 +1225,7 @@ def saved_bind(
         log_bind(
             request_id=request_id,
             chart_id=str(chart.id),
-            backend=payload.backend,
+            backend=backend,
             trigger=payload.trigger,
             outcome="error",
             error_code=error_code_for(exc),
@@ -1109,21 +1239,16 @@ def saved_bind(
     if source.id != chart.default_source_id:
         chart.default_source_id = source.id
 
-    elapsed_ms = int(round(envelope.elapsed * 1000))
-    rows: list[dict[str, Any]] = envelope.input["data"]["values"]
-    block = BindBlock(
-        backend=payload.backend,
-        content=revision.content,
-        rows=rows,
-        elapsed_ms=elapsed_ms,
-        source_schema=(
-            dict(envelope.source_schema) if envelope.source_schema is not None else None
-        ),
-    )
     # A failed cache object write skips the cache row but not the run — the
     # bind happened and the run is its audit (ADR-0007 §4, D6).
     _write_cache(
-        db, _store(request), chart=chart, revision=revision, source=source, block=block
+        db,
+        _store(request),
+        chart=chart,
+        revision=revision,
+        source=source,
+        rows=bound.rows,
+        elapsed_ms=bound.elapsed_ms,
     )
     _record_run(
         db,
@@ -1131,21 +1256,21 @@ def saved_bind(
         chart=chart,
         revision=revision,
         source=source,
-        backend=payload.backend,
+        backend=backend,
         trigger=payload.trigger,
         outcome="ok",
-        row_count=envelope.row_count,
-        elapsed_ms=elapsed_ms,
+        row_count=bound.row_count,
+        elapsed_ms=bound.elapsed_ms,
     )
     db.commit()
     log_bind(
         request_id=request_id,
         chart_id=str(chart.id),
-        backend=payload.backend,
+        backend=backend,
         trigger=payload.trigger,
         outcome="ok",
-        row_count=envelope.row_count,
-        elapsed_ms=elapsed_ms,
-        advisories=tuple(w.code for w in envelope.warnings),
+        row_count=bound.row_count,
+        elapsed_ms=bound.elapsed_ms,
+        advisories=tuple(w.code for w in bound.warnings),
     )
-    return _bind_out(envelope)
+    return bound.out
