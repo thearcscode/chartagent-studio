@@ -87,7 +87,7 @@ def log_bind(
     *,
     request_id: str | None,
     chart_id: str | None,
-    backend: str,
+    backend: str | None,
     trigger: str,
     outcome: str,
     row_count: int | None = None,

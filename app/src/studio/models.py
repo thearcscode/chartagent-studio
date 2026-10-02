@@ -185,8 +185,8 @@ class Run(Base):
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("data_sources.id", ondelete="SET NULL")
     )
-    # Nullable: a custom-rail bind has no backend (ADR-0018 D8). Nothing in P0
-    # writes a null backend.
+    # Nullable: a custom-rail bind has no backend (ADR-0018 D8); a recipe
+    # bind writes the null.
     backend: Mapped[str | None] = mapped_column(Text)
     # trigger_kind, not trigger: TRIGGER is reserved in SQL (ADR-0007 D7).
     trigger_kind: Mapped[str] = mapped_column(Text)

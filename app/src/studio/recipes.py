@@ -27,8 +27,8 @@ class PinnedLibrariesError(Exception):
 
 
 class RecipeOperationUnsupportedError(Exception):
-    """A diff, remap or bind over a recipe: a one-line JSON diff is not the
-    review surface (ADR-0018 D9), and the recipe bind is a later ticket."""
+    """A diff or remap over a recipe: a one-line JSON diff is not the review
+    surface (ADR-0018 D9)."""
 
     def __init__(self) -> None:
         super().__init__(
