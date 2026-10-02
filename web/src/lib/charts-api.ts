@@ -219,6 +219,15 @@ export async function updateSpec(
 
 /** BindOut plus the plan's own wall time (Studio ADR-0001 D2). */
 export interface PlanResponse extends BindResponse {
+  kind?: "frame";
+  plan_elapsed_ms: number;
+}
+
+/** A custom-rail answer: the recipe, unbound — no rows, backend or
+ * diagnostics (#48). */
+export interface RecipePlanResponse {
+  kind: "recipe";
+  recipe: Record<string, unknown>;
   plan_elapsed_ms: number;
 }
 
@@ -236,8 +245,10 @@ export function frameFromEnvelope(
 export async function planSpec(
   getToken: GetToken,
   payload: { instruction: string; source_id: string },
-): Promise<PlanResponse> {
-  return (await request(getToken, "POST", "/api/specs/plan", payload)) as PlanResponse;
+): Promise<PlanResponse | RecipePlanResponse> {
+  return (await request(getToken, "POST", "/api/specs/plan", payload)) as
+    | PlanResponse
+    | RecipePlanResponse;
 }
 
 /** The unsaved-frame bind: writes neither cache nor run. */

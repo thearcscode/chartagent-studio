@@ -10,7 +10,7 @@
 
 import { useAuth, UserButton } from "@clerk/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { DriftPanel } from "../components/DriftPanel";
 import { SandboxedPaint } from "../components/SandboxedPaint";
@@ -52,7 +52,12 @@ export function RecipeChartPage({ spec }: { spec: SpecOut }) {
   const [sources, setSources] = useState<SourceOut[]>([]);
   const [sourceId, setSourceId] = useState<string | null>(spec.default_source_id);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<RefreshFailure | null>(null);
+  // The instruction box saves and binds once before it navigates here; a
+  // bind that failed after the save rides along in the navigation state.
+  const location = useLocation();
+  const [refreshError, setRefreshError] = useState<RefreshFailure | null>(
+    () => (location.state as { refreshFailure?: RefreshFailure } | null)?.refreshFailure ?? null,
+  );
   const [refreshed, setRefreshed] = useState<{ revisionId: string; value: Refreshed } | null>(
     null,
   );
