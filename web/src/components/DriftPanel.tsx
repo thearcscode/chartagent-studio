@@ -23,10 +23,12 @@ interface DriftPanelProps {
   snapshot: SnapshotColumn[];
   referenced: string[];
   baseline: Record<string, string>;
-  onPreview: (
+  /** Absent when the chart cannot be remapped (a custom-rail recipe): the
+   * panel then only says what moved. */
+  onPreview?: (
     mapping: Record<string, string>,
   ) => Promise<DiffOut & { content: Record<string, unknown> }>;
-  onApprove: (content: Record<string, unknown>) => Promise<void>;
+  onApprove?: (content: Record<string, unknown>) => Promise<void>;
   onDismiss: () => void;
 }
 
@@ -60,7 +62,7 @@ export function DriftPanel({
     phase === "moved" ? "1 / 3 · detected" : phase === "remap" ? "2 / 3 · remapping" : "3 / 3 · patch";
 
   async function preview() {
-    if (!ready) return;
+    if (!ready || !onPreview) return;
     setWorking(true);
     setError(null);
     try {
@@ -75,7 +77,7 @@ export function DriftPanel({
   }
 
   async function approve() {
-    if (patch === null) return;
+    if (patch === null || !onApprove) return;
     setWorking(true);
     setError(null);
     try {
@@ -174,7 +176,7 @@ export function DriftPanel({
         <button type="button" className="ghost-button" onClick={onDismiss} disabled={working}>
           Leave as is
         </button>
-        {phase === "moved" && hasDropped(drifted) ? (
+        {phase === "moved" && hasDropped(drifted) && onPreview ? (
           <button
             type="button"
             className="primary-button"

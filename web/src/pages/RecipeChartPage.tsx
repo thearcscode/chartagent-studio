@@ -18,7 +18,6 @@ import {
   fetchCacheObject,
   fetchShell,
   listSources,
-  remapPreview,
   savedRecipeRefresh,
   type ChartShell,
   type SourceOut,
@@ -219,12 +218,6 @@ export function RecipeChartPage({ spec }: { spec: SpecOut }) {
             }
             referenced={referenced}
             baseline={{}}
-            onPreview={async (mapping) =>
-              remapPreview(getToken, spec.id, { mapping, drifted: refreshError.drifted })
-            }
-            onApprove={async () => {
-              throw new Error("A custom-rail chart cannot be repaired here.");
-            }}
             onDismiss={() => setRefreshError(null)}
           />
         ) : null}

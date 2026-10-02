@@ -59,7 +59,6 @@ export function toErrorLines(error: unknown): string[] {
     : [error instanceof Error ? error.message : String(error)];
 }
 
-
 /** A failed refresh as the page shows it: schema drift opens the recovery
  * table, anything else is plain lines. */
 export function refreshFailure(error: unknown): RefreshFailure {
