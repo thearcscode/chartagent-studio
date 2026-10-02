@@ -2,7 +2,7 @@
  * a canvas rendered with the expected series count. #9 adds exactly one
  * assertion: revert to an earlier revision and the drawn series count
  * changes. #33 adds steps for the custom-rail page; #41 adds steps that open
- * a saved custom chart. The suite does not grow a second life.
+ * a saved custom chart; #42 refreshes it against a changed source. The suite does not grow a second life.
  */
 
 import path from "node:path";
@@ -178,6 +178,39 @@ test("a saved chart draws a canvas with the expected series count", async ({ pag
   });
   await expect(page.locator(".paint-signal")).toHaveAttribute("data-series-count", "1");
   await expect(page.getByRole("radiogroup", { name: "Backend" })).toHaveCount(0);
+
+  // #42: refresh against a source whose rows differ repaints in place — a
+  // second paint, no reload, and the as-of line moves.
+  const changedSource = await page.evaluate(async () => {
+    const clerk = (window as unknown as { Clerk: { session: { getToken(): Promise<string> } } })
+      .Clerk;
+    const form = new FormData();
+    form.append(
+      "file",
+      new File(["quarter,revenue\nQ1,100\nQ2,200\nQ3,300\n"], "sales-changed.csv", {
+        type: "text/csv",
+      }),
+    );
+    const response = await fetch("/api/sources/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${await clerk.session.getToken()}` },
+      body: form,
+    });
+    if (!response.ok) throw new Error(`upload failed: ${response.status}`);
+    return ((await response.json()) as { id: string }).id;
+  });
+  await page.reload();
+  const customSignal = page.locator(".paint-signal");
+  await expect(customSignal).toHaveAttribute("data-signal", "painted", { timeout: 15_000 });
+  await expect(customSignal).toHaveAttribute("data-paint-count", "1");
+  const asOfBefore = await page.locator(".cost-line").textContent();
+  await page.getByLabel("Data source").selectOption(changedSource);
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(customSignal).toHaveAttribute("data-paint-count", "2", { timeout: 15_000 });
+  await expect(customSignal).toHaveAttribute("data-signal", "painted");
+  await expect(page.frameLocator("iframe.paint-frame").locator("body")).toContainText("3 rows");
+  await expect(page.locator(".cost-line")).toContainText("3 rows");
+  expect(await page.locator(".cost-line").textContent()).not.toBe(asOfBefore);
 
   await page.goto("/custom-rail/nonesuch");
   await expect(page.getByText("Not found.")).toBeVisible();

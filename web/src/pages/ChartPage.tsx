@@ -29,7 +29,14 @@ import { DriftPanel } from "../components/DriftPanel";
 import { RevisionDiff } from "../components/RevisionDiff";
 import { RevisionList } from "../components/RevisionList";
 import { RecipeChartPage } from "./RecipeChartPage";
-import { referencedNames, baselineBuckets, type DriftedField } from "../lib/drift";
+import { referencedNames, baselineBuckets } from "../lib/drift";
+import {
+  errorLines,
+  refreshFailure,
+  sourceName,
+  toErrorLines,
+  type RefreshFailure,
+} from "../lib/refresh";
 import {
   ApiError,
   createSpec,
@@ -93,52 +100,6 @@ interface LastBind {
   backend: Backend;
 }
 
-type RefreshFailure =
-  | { kind: "drift"; message: string; drifted: DriftedField[] }
-  | { kind: "other"; lines: string[] };
-
-function sourceName(source: SourceOut): string {
-  if (source.kind === "upload") return source.original_filename ?? "upload";
-  const url = source.url ?? "";
-  const segment = url.replace(/\/+$/, "").split("/").pop();
-  return segment ?? url;
-}
-
-/** The mapped error, rendered with its typed fields — the offending key,
- * chart type, backend and pin, never "something went wrong". */
-function errorLines(error: ApiError): string[] {
-  const body = error.body;
-  const lines: string[] = [];
-  if (body.error === "model_vendor_unavailable") {
-    lines.push("The model vendor is temporarily unavailable. Try again shortly.");
-    if (body.request_id) lines.push(`request id: ${body.request_id}`);
-    return lines;
-  }
-  const headline = body.message ?? body.detail ?? `HTTP ${error.status}`;
-  lines.push(headline);
-  const fields: string[] = [];
-  if (body.kind) fields.push(`kind: ${body.kind}`);
-  if (body.keys?.length) fields.push(`offending: ${body.keys.join(", ")}`);
-  if (body.chart_type) fields.push(`chart type: ${body.chart_type}`);
-  if (body.backend) fields.push(`backend: ${body.backend}`);
-  if (body.pin) fields.push(`pin: ${body.pin}`);
-  if (body.stage) fields.push(`stage: ${body.stage}`);
-  if (body.bucket !== undefined) fields.push(`bucket: ${body.bucket}`);
-  if (body.reason) fields.push(`reason: ${body.reason}`);
-  if (body.extra) fields.push(`extra: ${body.extra}`);
-  if (body.row_count !== undefined && body.cap !== undefined) {
-    fields.push(`${body.row_count} rows over the cap of ${body.cap}`);
-  }
-  if (fields.length) lines.push(fields.join(" · "));
-  for (const field of body.drifted ?? []) {
-    lines.push(
-      `${field.name}: expected ${field.expected ?? "—"}, found ${field.found ?? "—"} (${field.kind})`,
-    );
-  }
-  if (body.request_id) lines.push(`request id: ${body.request_id}`);
-  return lines;
-}
-
 /** Cost line: after a plan, bind ms and plan seconds are separate terms;
  * the plan term is gone on every later bind (Studio ADR-0001 D7). */
 function costLineText(bind: LastBind, planMs: number | null): string {
@@ -149,14 +110,6 @@ function costLineText(bind: LastBind, planMs: number | null): string {
     return `${rows} rows · ${ms} ms bind · ${Math.round(planMs / 1000)} s plan · ${label}`;
   }
   return `${rows} rows · ${ms} ms · ${label}`;
-}
-
-/** Any caught value → displayable lines: the mapped error's typed fields
- * when the server sent them, the plain message otherwise. */
-function toErrorLines(error: unknown): string[] {
-  return error instanceof ApiError
-    ? errorLines(error)
-    : [error instanceof Error ? error.message : String(error)];
 }
 
 export function ChartPage() {
@@ -500,15 +453,7 @@ export function ChartPage() {
       // The cache is untouched server-side; the picture, rails and cost
       // line stay. SchemaDriftError opens the recovery table rather than
       // a red box of field lines.
-      if (error instanceof ApiError && error.body.error === "schema_drift") {
-        setRefreshError({
-          kind: "drift",
-          message: error.body.message ?? "Schema drift",
-          drifted: error.body.drifted ?? [],
-        });
-      } else {
-        setRefreshError({ kind: "other", lines: toErrorLines(error) });
-      }
+      setRefreshError(refreshFailure(error));
     } finally {
       setRefreshing(false);
     }
