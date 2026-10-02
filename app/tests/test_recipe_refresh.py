@@ -20,7 +20,7 @@ from tests.test_recipe_save import RECIPE, _create, _pinned, _put
 
 # Lacks the `a` column the recipe's baseline and transform name.
 CSV_MISSING_COLUMN = b"c,b\n4,p\n5,q\n"
-CSV_DATES = b"a,d\n2,2024-01-02\n3,2024-01-03\n"
+CSV_DATES = b"a,d,x\n2,2024-01-02 03:04:05+00,1.5\n3,2024-01-03 00:00:00+00,nan\n"
 
 NO_MODEL = "refresh must not call the model"
 
@@ -142,10 +142,29 @@ def test_refresh_against_a_chosen_source_replaces_cache_and_moves_the_default(
 def test_cached_rows_are_the_librarys_wire_rows(
     db_client: TestClient, signing: SigningKeys
 ) -> None:
-    chart_id, _ = _recipe_chart(db_client, signing, content=CSV_DATES)
-    assert _refresh(db_client, signing, chart_id).status_code == 200
+    recipe = deepcopy(RECIPE)
+    recipe["source_schema"] = {"a": "number", "d": "timestamptz", "x": "number"}
+    chart_id, _ = _recipe_chart(db_client, signing, recipe, content=CSV_DATES)
+    response = _refresh(db_client, signing, chart_id)
+    assert response.status_code == 200
     rows = json.loads(_cache_object(db_client, signing, chart_id).content)["rows"]
-    assert [r["d"] for r in rows] == ["2024-01-02", "2024-01-03"]
+    assert [r["d"] for r in rows] == ["2024-01-02T03:04:05Z", "2024-01-03T00:00:00Z"]
+    assert [r["x"] for r in rows] == [1.5, None]
+    assert rows == response.json()["rows"]
+
+
+def test_a_retired_theme_preset_is_carried_not_validated_or_applied(
+    db_client: TestClient, signing: SigningKeys
+) -> None:
+    recipe = deepcopy(RECIPE)
+    recipe["theme_spec"] = "retired-preset"
+    chart_id, _ = _recipe_chart(db_client, signing, recipe)
+
+    response = _refresh(db_client, signing, chart_id)
+    assert response.status_code == 200
+    assert response.json()["theme_spec"] == "retired-preset"
+    stored = _get(db_client, signing, chart_id).json()["content"]
+    assert stored["theme_spec"] == "retired-preset"
 
 
 def _assert_failed_refresh_changes_nothing(
@@ -253,6 +272,11 @@ def test_a_rail_change_leaves_the_cache_pointer_stale(
     saved = _put(db_client, signing, chart_id, FRAME).json()
     assert saved["kind"] == "frame"
     assert saved["cache"]["revision_id"] == cached_revision != saved["revision_id"]
+
+    # The cache route still serves the old revision's object; the id mismatch
+    # is what the client reads as *Refresh to bind*.
+    cached = json.loads(_cache_object(db_client, signing, chart_id).content)
+    assert cached["revision_id"] == cached_revision != saved["revision_id"]
 
     # Refresh on the frame rail re-points the cache at the frame revision.
     frame_refresh = _refresh(
