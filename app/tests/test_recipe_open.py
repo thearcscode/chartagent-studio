@@ -39,7 +39,9 @@ def test_shell_is_the_library_shell_with_exact_sandbox_and_no_rows(
     assert body["sandbox"] == ["allow-scripts"]
     assert body["html"]
     assert "window.render" in body["html"]  # the stored module, assembled
-    assert '"b": "y"' not in body["html"] and '"b":"y"' not in body["html"]
+    for row in rows:
+        for value in row.values():
+            assert f'"{value}"' not in body["html"]
     # Pure read: the refresh above is the only run.
     assert len(_runs(db_client, signing, chart_id)) == 1
     _shell(db_client, signing, chart_id)

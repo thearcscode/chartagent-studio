@@ -159,12 +159,14 @@ test("a saved chart draws a canvas with the expected series count", async ({ pag
         headers,
         body: JSON.stringify({ content: recipe, source_id: source }),
       });
+      if (!created.ok) throw new Error(`create failed: ${created.status}`);
       const chart = (await created.json()) as { id: string };
-      await fetch(`/api/specs/${chart.id}/bind`, {
+      const bound = await fetch(`/api/specs/${chart.id}/bind`, {
         method: "POST",
         headers,
         body: JSON.stringify({ trigger: "refresh" }),
       });
+      if (!bound.ok) throw new Error(`refresh failed: ${bound.status}`);
       return chart.id;
     },
     { recipe: CUSTOM_RECIPE, source: sourceId },

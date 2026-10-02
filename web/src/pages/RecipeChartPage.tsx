@@ -16,7 +16,7 @@ import {
   type ChartShell,
   type SpecOut,
 } from "../lib/charts-api";
-import { cacheObjectMatches, pointerState } from "../lib/library";
+import { cacheObjectMatches, pointerState, UNBOUND_COPY } from "../lib/library";
 import { dataPaletteTheme } from "../lib/palette";
 import { CHART_STAGE } from "../lib/stage";
 import { getStoredTheme, setTheme, type Theme } from "../theme";
@@ -25,13 +25,6 @@ type Fetched =
   | { kind: "unbound"; reason: string }
   | { kind: "error"; reason: string }
   | { kind: "ready"; shell: ChartShell; rows: Array<Record<string, unknown>> };
-
-const UNBOUND_COPY = {
-  none: "Never bound.",
-  stale: "The cache predates this revision or its source.",
-  missing: "The cached object is gone.",
-  mismatch: "The cached object names another revision.",
-} as const;
 
 export function RecipeChartPage({ spec }: { spec: SpecOut }) {
   const { getToken } = useAuth();

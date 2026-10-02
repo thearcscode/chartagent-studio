@@ -80,3 +80,12 @@ export function formatBoundAt(boundAt: string): string {
     `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`
   );
 }
+
+/** The *Refresh to bind* reasons, one set for every surface that shows them. */
+export const UNBOUND_COPY = {
+  none: "Never bound.",
+  stale:
+    "The cache predates this revision or its source — a new chart with old rows is a wrong chart.",
+  missing: "The cached object is gone.",
+  mismatch: "The cached object names another revision — a wrong chart, not an early one.",
+} as const;

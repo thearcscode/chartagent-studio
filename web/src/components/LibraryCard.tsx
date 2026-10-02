@@ -27,6 +27,7 @@ import {
   envelopeFromCache,
   formatBoundAt,
   pointerState,
+  UNBOUND_COPY,
 } from "../lib/library";
 import { drawChart, type DrawCleanup } from "../lib/renderers";
 
@@ -45,14 +46,6 @@ type CacheRead =
   | { kind: "loading" }
   | Unbound
   | { kind: "ready"; revisionId: string; rows: Array<Record<string, unknown>> };
-
-const UNBOUND_COPY = {
-  none: "Never bound.",
-  stale:
-    "The cache predates this revision or its source — a new chart with old rows is a wrong chart.",
-  missing: "The cached object is gone.",
-  mismatch: "The cached object names another revision — a wrong chart, not an early one.",
-} as const;
 
 /** A saved custom-rail chart's card (#41): a recipe is not a Flint frame, so
  * nothing is compiled here — the card links to the chart, which paints from
