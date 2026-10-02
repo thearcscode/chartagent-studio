@@ -15,6 +15,7 @@ export function App() {
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/custom-rail" element={<CustomRailPage />} />
+        <Route path="/custom-rail/:fixture" element={<CustomRailPage />} />
         <Route path="/charts/new" element={<ChartPage />} />
         <Route path="/charts/:chartId" element={<ChartPage />} />
       </Route>

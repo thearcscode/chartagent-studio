@@ -111,4 +111,10 @@ test("a saved chart draws a canvas with the expected series count", async ({ pag
   await page.getByRole("button", { name: "throwing" }).click();
   await expect(signal).toHaveAttribute("data-signal", "failed", { timeout: 15_000 });
   await expect(signal).toContainText("Did not paint");
+  await expect(signal).not.toContainText("Painted");
+  await expect(page).toHaveURL(/\/custom-rail\/throwing$/);
+
+  await page.goto("/custom-rail/nonesuch");
+  await expect(page.getByText("Not found.")).toBeVisible();
+  await expect(page.locator("iframe.paint-frame")).toHaveCount(0);
 });
