@@ -163,3 +163,10 @@ export function applyHousePalette<T>(option: T, backend: Backend): T {
   }
   return option;
 }
+
+/** The channel's `theme` (ADR-0017 D7/D8): data-palette tokens only, keyed
+ * without the leading `--` (the shell sets `--<token>` on its container).
+ * State accents never travel on it. */
+export function dataPaletteTheme(): Record<string, string> {
+  return Object.fromEntries(HOUSE_PALETTE.map((hex, i) => [`series-${i + 1}`, hex]));
+}

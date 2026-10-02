@@ -36,12 +36,13 @@ window.render = function (data, el) {
     dot.setAttribute("cx", p.x);
     dot.setAttribute("cy", y);
     dot.setAttribute("r", 3);
+    dot.setAttribute("fill", "var(--series-1, #0072b2)");
     svg.appendChild(dot);
   });
   var line = document.createElementNS(svgNs, "polyline");
   line.setAttribute("points", points.join(" "));
   line.setAttribute("fill", "none");
-  line.setAttribute("stroke", "currentColor");
+  line.setAttribute("stroke", "var(--series-1, #0072b2)");
   svg.insertBefore(line, svg.firstChild);
   el.appendChild(svg);
   plotted = [{ name: "value", x: "day", y: "value", points: values.length }];

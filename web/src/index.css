@@ -980,3 +980,31 @@ code,
   color: var(--teal);
 }
 
+.sandboxed-paint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.paint-signal {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Rail hues stay out of the chart frame (design README); only failure takes
+ * a state accent, and the text carries every state regardless of colour. */
+.paint-signal[data-signal="painted"] {
+  color: var(--ink);
+}
+
+.paint-signal[data-signal="failed"] {
+  color: var(--red);
+}
+
+.paint-frame {
+  border: 0;
+  display: block;
+  background: transparent;
+  color-scheme: normal;
+}

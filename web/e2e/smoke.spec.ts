@@ -1,7 +1,8 @@
 /** One smoke test (#77; ADR-0006 D15): sign in, open a saved chart, assert
  * a canvas rendered with the expected series count. #9 adds exactly one
  * assertion: revert to an earlier revision and the drawn series count
- * changes. The suite does not grow a second life.
+ * changes. #33 adds steps for the custom-rail page. The suite does not grow
+ * a second life.
  */
 
 import path from "node:path";
@@ -92,4 +93,22 @@ test("a saved chart draws a canvas with the expected series count", async ({ pag
   await expect(page.locator(".chart-area")).toHaveAttribute("data-series-count", "1", {
     timeout: 60_000,
   });
+
+  // #33: the custom rail's parent side, in a real opaque-origin iframe.
+  await page.goto("/custom-rail");
+  const frame = page.locator("iframe.paint-frame");
+  await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+  const signal = page.locator(".paint-signal");
+  await expect(signal).toHaveAttribute("data-signal", "painted", { timeout: 15_000 });
+  await expect(signal).toHaveAttribute("data-series-count", "1");
+  await expect(signal).toContainText("Painted");
+  await expect(signal).toHaveAttribute("data-paint-count", "1");
+
+  await page.getByRole("button", { name: /(light|dark) theme/i }).click();
+  await expect(signal).toHaveAttribute("data-paint-count", "2", { timeout: 15_000 });
+  await expect(signal).toHaveAttribute("data-signal", "painted");
+
+  await page.getByRole("button", { name: "throwing" }).click();
+  await expect(signal).toHaveAttribute("data-signal", "failed", { timeout: 15_000 });
+  await expect(signal).toContainText("Did not paint");
 });
