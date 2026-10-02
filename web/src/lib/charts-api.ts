@@ -264,6 +264,27 @@ export async function savedBind(
   )) as BindResponse;
 }
 
+/** What a recipe bind carries: wire rows and diagnostics, no backend and
+ * no flint version (ADR-0018 D8). */
+export interface RecipeBindResponse {
+  rows: Array<Record<string, unknown>>;
+  row_count: number;
+  elapsed: number;
+  warnings: AdvisoryOut[];
+}
+
+/** Refresh a saved custom-rail chart: the request carries no backend. */
+export async function savedRecipeRefresh(
+  getToken: GetToken,
+  chartId: string,
+  sourceId?: string,
+): Promise<RecipeBindResponse> {
+  return (await request(getToken, "POST", `/api/specs/${chartId}/bind`, {
+    source_id: sourceId,
+    trigger: "refresh",
+  })) as RecipeBindResponse;
+}
+
 export async function deleteSpec(getToken: GetToken, chartId: string): Promise<void> {
   await request(getToken, "DELETE", `/api/specs/${chartId}`);
 }
