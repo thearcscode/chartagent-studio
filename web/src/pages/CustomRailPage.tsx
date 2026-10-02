@@ -5,9 +5,10 @@
 
 import { useAuth, UserButton } from "@clerk/react";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { SandboxedPaint } from "../components/SandboxedPaint";
+import { ApiError } from "../lib/charts-api";
 import { fetchFixture, type FixtureShell } from "../lib/fixtures-api";
 import { dataPaletteTheme } from "../lib/palette";
 import { CHART_STAGE } from "../lib/stage";
@@ -16,15 +17,31 @@ import { getStoredTheme, setTheme, type Theme } from "../theme";
 const FIXTURE_NAMES = ["drawing", "throwing"] as const;
 
 export function CustomRailPage() {
+  const { fixture = FIXTURE_NAMES[0] } = useParams();
+  const known = (FIXTURE_NAMES as readonly string[]).includes(fixture);
+  return known ? <FixtureView name={fixture} /> : <NotFound />;
+}
+
+function NotFound() {
+  return (
+    <div className="app-shell">
+      <p role="alert">Not found.</p>
+      <Link to="/custom-rail">Back to the custom-rail page</Link>
+    </div>
+  );
+}
+
+function FixtureView({ name }: { name: string }) {
   const { getToken } = useAuth();
+  const navigate = useNavigate();
   const [theme, setThemeState] = useState<Theme>(() => getStoredTheme(localStorage));
-  const [name, setName] = useState<string>(FIXTURE_NAMES[0]);
   // Results are tagged with the fixture they answer, so a switch reads as
   // loading without resetting state inside the effect.
   const [loaded, setLoaded] = useState<{
     name: string;
     shell?: FixtureShell;
     error?: string;
+    missing?: boolean;
   } | null>(null);
   // The data palette is identical in both themes: the toggle asks for a
   // fresh paint through `repaintKey`, not by changing the theme object.
@@ -39,7 +56,11 @@ export function CustomRailPage() {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setLoaded({ name, error: error instanceof Error ? error.message : String(error) });
+          setLoaded({
+            name,
+            error: error instanceof Error ? error.message : String(error),
+            missing: error instanceof ApiError && error.status === 404,
+          });
         }
       });
     return () => {
@@ -75,14 +96,16 @@ export function CustomRailPage() {
             type="button"
             className="ghost-button"
             aria-pressed={name === fixtureName}
-            onClick={() => setName(fixtureName)}
+            onClick={() => navigate(`/custom-rail/${fixtureName}`)}
           >
             {fixtureName}
           </button>
         ))}
       </div>
       <section className="stage-pane">
-        {current?.error !== undefined ? (
+        {current?.missing === true ? (
+          <p role="alert">Not found.</p>
+        ) : current?.error !== undefined ? (
           <p className="paint-signal" role="alert" data-signal="failed">
             Did not load the fixture. {current.error}
           </p>
