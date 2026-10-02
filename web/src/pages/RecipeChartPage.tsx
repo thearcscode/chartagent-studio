@@ -24,7 +24,7 @@ import {
   type SpecOut,
 } from "../lib/charts-api";
 import { cacheObjectMatches, formatBoundAt, pointerState, UNBOUND_COPY } from "../lib/library";
-import { refreshFailure, sourceName, type RefreshFailure } from "../lib/refresh";
+import { refreshFailure, sourceName, type RecipeOpenState, type RefreshFailure } from "../lib/refresh";
 import { dataPaletteTheme } from "../lib/palette";
 import { CHART_STAGE } from "../lib/stage";
 import { getStoredTheme, setTheme, type Theme } from "../theme";
@@ -52,11 +52,16 @@ export function RecipeChartPage({ spec }: { spec: SpecOut }) {
   const [sources, setSources] = useState<SourceOut[]>([]);
   const [sourceId, setSourceId] = useState<string | null>(spec.default_source_id);
   const [refreshing, setRefreshing] = useState(false);
-  // The instruction box saves and binds once before it navigates here; a
-  // bind that failed after the save rides along in the navigation state.
+  // The instruction box saves and binds once before it navigates here; its
+  // plan time and a bind that failed after the save ride in the navigation
+  // state. The plan term lasts until the next Refresh, success or not.
   const location = useLocation();
+  const opening = location.state as Partial<RecipeOpenState> | null;
+  const [planElapsedMs, setPlanElapsedMs] = useState<number | null>(
+    () => opening?.planElapsedMs ?? null,
+  );
   const [refreshError, setRefreshError] = useState<RefreshFailure | null>(
-    () => (location.state as { refreshFailure?: RefreshFailure } | null)?.refreshFailure ?? null,
+    () => opening?.refreshFailure ?? null,
   );
   const [refreshed, setRefreshed] = useState<{ revisionId: string; value: Refreshed } | null>(
     null,
@@ -128,12 +133,15 @@ export function RecipeChartPage({ spec }: { spec: SpecOut }) {
     latest !== null
       ? `${latest.rowCount} rows · ${Math.round(latest.elapsedMs)} ms · as of ${formatBoundAt(latest.boundAt)}`
       : state.kind === "fresh" && opened?.kind === "ready"
-        ? `${state.pointer.row_count} rows · ${state.pointer.elapsed_ms} ms · as of ${formatBoundAt(state.pointer.bound_at)}`
+        ? planElapsedMs !== null
+          ? `${state.pointer.row_count} rows · ${state.pointer.elapsed_ms} ms bind · ${Math.round(planElapsedMs / 1000)} s plan · as of ${formatBoundAt(state.pointer.bound_at)}`
+          : `${state.pointer.row_count} rows · ${state.pointer.elapsed_ms} ms · as of ${formatBoundAt(state.pointer.bound_at)}`
         : null;
 
   const onRefresh = useCallback(async () => {
     if (sourceId === null) return;
     setRefreshError(null);
+    setPlanElapsedMs(null);
     setRefreshing(true);
     try {
       const chosen = sourceId !== spec.default_source_id ? sourceId : undefined;

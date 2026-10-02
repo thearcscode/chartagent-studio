@@ -71,3 +71,11 @@ export function refreshFailure(error: unknown): RefreshFailure {
   }
   return { kind: "other", lines: toErrorLines(error) };
 }
+
+/** What the instruction box hands the chart page it navigates to after a
+ * custom-rail plan (#49): the plan's wall time, and the failure of the one
+ * bind that followed the save, if it failed. */
+export interface RecipeOpenState {
+  planElapsedMs: number;
+  refreshFailure?: RefreshFailure;
+}

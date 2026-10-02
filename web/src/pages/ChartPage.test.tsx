@@ -7,7 +7,7 @@
 
 import { StrictMode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, type BindResponse, type SourceOut, type SpecOut } from "../lib/charts-api";
@@ -1264,6 +1264,24 @@ describe("ChartPage instruction box, custom-rail answer", () => {
     );
     expect(vi.mocked(previewBind)).not.toHaveBeenCalled();
     expect(vi.mocked(drawChart)).not.toHaveBeenCalled();
+  });
+
+  it("carries the plan time in the navigation state", async () => {
+    function Probe() {
+      const state = useLocation().state as { planElapsedMs?: number } | null;
+      return <p>plan ms {state?.planElapsedMs}</p>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/charts/new"]}>
+        <Routes>
+          <Route path="/charts/new" element={<ChartPage />} />
+          <Route path="/charts/:chartId" element={<Probe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await fillInstruction();
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+    expect(await screen.findByText("plan ms 900")).toBeTruthy();
   });
 
   it("keeps Planning… visible through the save and bind", async () => {
