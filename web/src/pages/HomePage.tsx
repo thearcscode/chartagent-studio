@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { BackendPicker } from "../components/BackendPicker";
-import { LibraryCard } from "../components/LibraryCard";
+import { LibraryCard, RecipeCard } from "../components/LibraryCard";
 import type { Backend } from "../lib/backends";
 import { listSpecs, type SpecOut } from "../lib/charts-api";
 import { loadFlint, type FlintGlobal } from "../lib/flint";
@@ -113,14 +113,18 @@ export function HomePage() {
           loading
         ) : (
           <div className="library-grid">
-            {cards.map((card) => (
-              <LibraryCard
-                key={card.id}
-                card={card}
-                backend={backend}
-                flint={flint}
-              />
-            ))}
+            {cards.map((card) =>
+              card.kind === "recipe" ? (
+                <RecipeCard key={card.id} card={card} />
+              ) : (
+                <LibraryCard
+                  key={card.id}
+                  card={card}
+                  backend={backend}
+                  flint={flint}
+                />
+              ),
+            )}
           </div>
         )}
       </main>

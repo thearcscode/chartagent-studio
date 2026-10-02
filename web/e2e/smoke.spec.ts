@@ -1,8 +1,8 @@
 /** One smoke test (#77; ADR-0006 D15): sign in, open a saved chart, assert
  * a canvas rendered with the expected series count. #9 adds exactly one
  * assertion: revert to an earlier revision and the drawn series count
- * changes. #33 adds steps for the custom-rail page. The suite does not grow
- * a second life.
+ * changes. #33 adds steps for the custom-rail page; #41 adds steps that open
+ * a saved custom chart. The suite does not grow a second life.
  */
 
 import path from "node:path";
@@ -34,6 +34,33 @@ const GROUPED_FRAME = `{
   }
 }`;
 
+const CUSTOM_RECIPE = {
+  spec_version: "1.2",
+  transform: {
+    filter: {
+      kind: "gt",
+      args: [
+        { kind: "col", name: "revenue" },
+        { kind: "lit", value: 50 },
+      ],
+    },
+  },
+  source_schema: { revenue: "number" },
+  escape_reason: { bucket: 1 },
+  theme_spec: null,
+  document: {
+    module: `var plotted = [];
+window.render = function (data, el) {
+  el.textContent = data.length + " rows";
+  plotted = [{ name: "revenue", x: "quarter", y: "revenue", points: data.length }];
+};
+window.getPlottedSeries = function () { return plotted; };`,
+    styles: null,
+    libraries: [],
+    contract_version: 1,
+  },
+};
+
 test("a saved chart draws a canvas with the expected series count", async ({ page }) => {
   if (process.env.CI && (!process.env.E2E_CLERK_USER_EMAIL || !process.env.CLERK_SECRET_KEY)) {
     throw new Error("E2E_CLERK_USER_EMAIL and CLERK_SECRET_KEY are required in CI");
@@ -60,6 +87,8 @@ test("a saved chart draws a canvas with the expected series count", async ({ pag
   await expect(page.locator(".chart-area")).toHaveAttribute("data-state", "rendered", {
     timeout: 60_000,
   });
+
+  const sourceId = await page.getByLabel("Data source").inputValue();
 
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForURL(/\/charts\/[0-9a-f-]{36}$/i, { timeout: 15_000 });
@@ -114,6 +143,39 @@ test("a saved chart draws a canvas with the expected series count", async ({ pag
   await expect(signal).toContainText("The document reported that it did not paint");
   await expect(signal).not.toContainText("Painted");
   await expect(page).toHaveURL(/\/custom-rail\/throwing$/);
+
+  // #41: a saved custom chart opens from the cache, in the same sandboxed
+  // mount, with no backend picker.
+  const customId = await page.evaluate(
+    async ({ recipe, source }) => {
+      const clerk = (window as unknown as { Clerk: { session: { getToken(): Promise<string> } } })
+        .Clerk;
+      const headers = {
+        Authorization: `Bearer ${await clerk.session.getToken()}`,
+        "Content-Type": "application/json",
+      };
+      const created = await fetch("/api/specs", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ content: recipe, source_id: source }),
+      });
+      const chart = (await created.json()) as { id: string };
+      await fetch(`/api/specs/${chart.id}/bind`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ trigger: "refresh" }),
+      });
+      return chart.id;
+    },
+    { recipe: CUSTOM_RECIPE, source: sourceId },
+  );
+  await page.goto(`/charts/${customId}`);
+  await expect(page.locator("iframe.paint-frame")).toHaveAttribute("sandbox", "allow-scripts");
+  await expect(page.locator(".paint-signal")).toHaveAttribute("data-signal", "painted", {
+    timeout: 15_000,
+  });
+  await expect(page.locator(".paint-signal")).toHaveAttribute("data-series-count", "1");
+  await expect(page.getByRole("radiogroup", { name: "Backend" })).toHaveCount(0);
 
   await page.goto("/custom-rail/nonesuch");
   await expect(page.getByText("Not found.")).toBeVisible();
