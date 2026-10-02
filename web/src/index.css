@@ -980,7 +980,6 @@ code,
   color: var(--teal);
 }
 
-
 .sandboxed-paint {
   display: flex;
   flex-direction: column;
@@ -993,9 +992,10 @@ code,
   color: var(--muted);
 }
 
-/* Custom code rail = violet; failure = red. Text carries the state too. */
+/* Rail hues stay out of the chart frame (design README); only failure takes
+ * a state accent, and the text carries every state regardless of colour. */
 .paint-signal[data-signal="painted"] {
-  color: var(--violet);
+  color: var(--ink);
 }
 
 .paint-signal[data-signal="failed"] {
