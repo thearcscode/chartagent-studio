@@ -73,6 +73,12 @@ addition is `plan_elapsed_ms` (Decision 7). **`BindOut` itself is untouched**: t
 routes gain no field they have no value for, and a test asserts `BindOut` has no
 `plan_elapsed_ms` so the two cannot quietly converge.
 
+**Amendment (#48):** the response now states its `kind`. A frame answer is `PlanOut`
+plus `kind: "frame"`. A custom-rail answer is `{kind: "recipe", recipe, plan_elapsed_ms}`:
+the recipe in canonical dict form, nothing bound, no row cap applied. With no bind
+time to subtract, a recipe's `plan_elapsed_ms` is the full wall time around
+`create_chart`.
+
 ### 3. The client strips `data`, not the server
 
 One helper in the SPA — `frameFromEnvelope()` — removes `data` from `envelope.input`,
