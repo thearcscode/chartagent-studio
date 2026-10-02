@@ -35,6 +35,7 @@ import {
   refreshFailure,
   sourceName,
   toErrorLines,
+  type RecipeOpenState,
   type RefreshFailure,
 } from "../lib/refresh";
 import {
@@ -358,7 +359,7 @@ export function ChartPage() {
    * the server's "Custom · {source}" default applies. A refresh failure
    * after the save does not roll it back — the chart page shows it. */
   const saveAndOpenRecipe = useCallback(
-    async (recipe: Record<string, unknown>, planSourceId: string) => {
+    async (recipe: Record<string, unknown>, planSourceId: string, planElapsedMs: number) => {
       const saved = await createSpec(getToken, { content: recipe, source_id: planSourceId });
       let failure: RefreshFailure | null = null;
       try {
@@ -366,7 +367,9 @@ export function ChartPage() {
       } catch (error) {
         failure = refreshFailure(error);
       }
-      navigate(`/charts/${saved.id}`, { state: failure === null ? undefined : { refreshFailure: failure } });
+      const state: RecipeOpenState =
+        failure === null ? { planElapsedMs } : { planElapsedMs, refreshFailure: failure };
+      navigate(`/charts/${saved.id}`, { state });
     },
     [getToken, navigate],
   );
@@ -405,7 +408,7 @@ export function ChartPage() {
         source_id: sourceId,
       });
       if (answer.kind === "recipe") {
-        await saveAndOpenRecipe(answer.recipe, sourceId);
+        await saveAndOpenRecipe(answer.recipe, sourceId, answer.plan_elapsed_ms);
         return;
       }
       const envelope = answer;
