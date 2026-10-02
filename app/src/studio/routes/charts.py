@@ -41,7 +41,14 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
-from chartagent import Backend, InputFrame, bind, canonical_json, flint_bundle
+from chartagent import (
+    Backend,
+    ChartRecipe,
+    InputFrame,
+    bind,
+    canonical_json,
+    flint_bundle,
+)
 from chartagent.errors import ChartAgentError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
@@ -62,6 +69,7 @@ from studio.errors import (
 from studio.ids import new_id
 from studio.models import BindCache, Chart, DataSource, Run, SpecRevision
 from studio.observe import log_bind, log_plan
+from studio.recipes import RecipeDiffUnsupportedError, ensure_supported, is_recipe
 from studio.remap import RemapRefusedError, apply_mapping, validate_mapping
 from studio.storage import ObjectStore, drop
 
@@ -330,6 +338,8 @@ def _source_name(source: DataSource) -> str:
 
 
 def _default_title(content: dict[str, Any], source: DataSource) -> str:
+    if is_recipe(content):
+        return f"Custom · {_source_name(source)}"
     chart_type = InputFrame.model_validate(content).chart_spec.chart_type
     sentence = chart_type[:1] + chart_type[1:].lower()
     return f"{sentence} · {_source_name(source)}"
@@ -574,14 +584,43 @@ def _spec_out(db: OrmSession, chart: Chart) -> SpecOut:
     )
 
 
-def _save_common(
-    content: dict[str, Any], block: BindBlock | None
-) -> tuple[dict[str, Any], str]:
-    """Validate, copy `source_schema`, canonicalize. Returns (doc, hash)."""
+class _Artifact(BaseModel):
+    """What a save is about to store: the canonical document, its content
+    address, and which rail it is on."""
+
+    kind: Literal["frame", "recipe"]
+    doc: dict[str, Any]
+    content_hash: str
+    authored_flint_version: str | None
+
+
+def _save_common(content: dict[str, Any], block: BindBlock | None) -> _Artifact:
+    """Decide the kind from the content, validate through the library, copy
+    `source_schema` (frames), canonicalize and hash."""
+    if is_recipe(content):
+        if block is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="A bind result cannot be saved with a custom chart",
+            )
+        recipe = ChartRecipe.from_dict(content)
+        ensure_supported(recipe)
+        canonical = recipe.canonical_json()
+        return _Artifact(
+            kind="recipe",
+            doc=json.loads(canonical),
+            content_hash=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+            authored_flint_version=None,
+        )
     doc = _copy_source_schema(
         content, block.source_schema if block is not None else None
     )
-    return doc, hashlib.sha256(canonical_json(doc).encode("utf-8")).hexdigest()
+    return _Artifact(
+        kind="frame",
+        doc=doc,
+        content_hash=hashlib.sha256(canonical_json(doc).encode("utf-8")).hexdigest(),
+        authored_flint_version=flint_bundle().version,
+    )
 
 
 @router.post("/specs", status_code=status.HTTP_201_CREATED)
@@ -592,7 +631,8 @@ def create_spec(
     db: Annotated[OrmSession, Depends(get_db)],
 ) -> SpecOut:
     source = _owned_source(db, payload.source_id, session.owner_id)
-    doc, content_hash = _save_common(payload.content, payload.bind)
+    artifact = _save_common(payload.content, payload.bind)
+    doc, content_hash = artifact.doc, artifact.content_hash
     title = (payload.title or "").strip() or _default_title(doc, source)
 
     chart_id = new_id()
@@ -611,8 +651,8 @@ def create_spec(
         revision_number=1,
         content_hash=content_hash,
         content=doc,
-        kind="frame",
-        authored_flint_version=flint_bundle().version,
+        kind=artifact.kind,
+        authored_flint_version=artifact.authored_flint_version,
     )
     db.add(chart)
     db.add(revision)
@@ -649,7 +689,8 @@ def update_spec(
         )
     source = _owned_source(db, source_id, session.owner_id)
     current = _current_revision(db, chart)
-    doc, content_hash = _save_common(payload.content, payload.bind)
+    artifact = _save_common(payload.content, payload.bind)
+    doc, content_hash = artifact.doc, artifact.content_hash
 
     if payload.title is not None:
         stripped = payload.title.strip()
@@ -676,8 +717,8 @@ def update_spec(
         revision_number=_next_revision_number(db, chart),
         content_hash=content_hash,
         content=doc,
-        kind="frame",
-        authored_flint_version=flint_bundle().version,
+        kind=artifact.kind,
+        authored_flint_version=artifact.authored_flint_version,
     )
     db.add(revision)
     db.flush()
@@ -722,7 +763,11 @@ def get_spec(
     db: Annotated[OrmSession, Depends(get_db)],
 ) -> SpecOut:
     chart = _owned_chart(db, chart_id, session.owner_id)
-    return _spec_out(db, chart)
+    out = _spec_out(db, chart)
+    if out.kind == "recipe":
+        # Open refuses what save refuses — one rule (#39).
+        ensure_supported(ChartRecipe.from_dict(out.content))
+    return out
 
 
 @router.delete("/specs/{chart_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -819,6 +864,8 @@ def diff_revisions(
     chart = _owned_chart(db, chart_id, session.owner_id)
     left = _owned_revision(db, chart, from_rev)
     right = _owned_revision(db, chart, to_rev)
+    if "recipe" in (left.kind, right.kind):
+        raise RecipeDiffUnsupportedError
     hunks, source_schema_only = diff_documents(left.content, right.content)
     return DiffOut(
         from_revision=from_rev,
@@ -840,6 +887,8 @@ def remap_preview(
     or a partial mapping is refused rather than saved as a half-repair."""
     chart = _owned_chart(db, chart_id, session.owner_id)
     revision = _current_revision(db, chart)
+    if revision.kind == "recipe":
+        raise RecipeDiffUnsupportedError
     drifted = [field.model_dump() for field in payload.drifted]
     try:
         validate_mapping(drifted, payload.mapping)
