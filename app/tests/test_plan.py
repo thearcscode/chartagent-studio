@@ -7,11 +7,13 @@ or raises a chosen error. Nothing here re-tests the library planner.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chartagent import ChartResult
+import pytest
+from chartagent import ChartRecipe, ChartResult
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -20,6 +22,7 @@ from studio.models import BindCache, Chart, Run, SpecRevision
 from studio.routes.charts import BindOut
 from tests.conftest import SigningKeys, bearer_headers
 from tests.test_charts import FRAME, _upload_source
+from tests.test_recipe_save import RECIPE
 
 BIND_KEYS = {
     "flint_version",
@@ -102,7 +105,8 @@ def test_plan_returns_bind_keys_plus_plan_elapsed_ms(
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == BIND_KEYS | {"plan_elapsed_ms"}
+    assert set(body) == BIND_KEYS | {"plan_elapsed_ms", "kind"}
+    assert body["kind"] == "frame"
     assert body["flint_version"] == "0.1.0"
     assert body["backend"] == "vegalite"
     assert body["input"]["data"]["values"] == [
@@ -379,3 +383,81 @@ def test_plan_requires_a_session(db_client: TestClient, signing: SigningKeys) ->
         json={"instruction": "revenue by region", "source_id": source_id},
     )
     assert response.status_code == 401
+
+
+# --- The custom rail (#48) ---------------------------------------------------
+
+
+def _recipe_result() -> ChartResult:
+    return ChartResult(recipe=ChartRecipe.from_dict(RECIPE))
+
+
+def test_plan_recipe_result_returns_the_canonical_recipe(
+    db_app: FastAPI, db_client: TestClient, signing: SigningKeys
+) -> None:
+    db_app.state.chart_agent = _StubAgent(_recipe_result())
+    source_id = _upload_source(db_client, signing)
+
+    response = _plan(db_client, signing, source_id)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"kind", "recipe", "plan_elapsed_ms"}
+    assert body["kind"] == "recipe"
+    assert body["recipe"] == json.loads(
+        ChartRecipe.from_dict(RECIPE).canonical_json()
+    )
+    assert isinstance(body["plan_elapsed_ms"], int)
+    assert body["plan_elapsed_ms"] >= 0
+
+
+def test_plan_recipe_result_ignores_the_row_cap(
+    signing: SigningKeys, tmp_path: Path, db_url: str, clean_db: None
+) -> None:
+    from tests.conftest import make_app
+
+    app = make_app(
+        signing.jwks,
+        database_url=db_url,
+        object_store_dir=tmp_path / "objects",
+        bind_row_cap=0,
+    )
+    app.state.chart_agent = _StubAgent(_recipe_result())
+    with TestClient(app) as client:
+        source_id = _upload_source(client, signing)
+        response = _plan(client, signing, source_id)
+    assert response.status_code == 200
+    assert response.json()["kind"] == "recipe"
+
+
+def test_plan_recipe_result_writes_nothing(
+    db_app: FastAPI, db_client: TestClient, signing: SigningKeys
+) -> None:
+    db_app.state.chart_agent = _StubAgent(_recipe_result())
+    source_id = _upload_source(db_client, signing)
+    assert _plan(db_client, signing, source_id).status_code == 200
+
+    with db_app.state.session_factory() as session:
+        for model in (Chart, SpecRevision, BindCache, Run):
+            assert session.scalar(select(func.count()).select_from(model)) == 0
+
+
+def test_plan_recipe_result_logs_ok_with_a_null_backend(
+    db_app: FastAPI,
+    db_client: TestClient,
+    signing: SigningKeys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from studio.routes import charts
+
+    logged: list[dict[str, Any]] = []
+    monkeypatch.setattr(charts, "log_plan", lambda **kw: logged.append(kw))
+    db_app.state.chart_agent = _StubAgent(_recipe_result())
+    source_id = _upload_source(db_client, signing)
+
+    assert _plan(db_client, signing, source_id).status_code == 200
+
+    assert len(logged) == 1
+    assert logged[0]["outcome"] == "ok"
+    assert logged[0]["backend"] is None
+    assert logged[0].get("row_count") is None

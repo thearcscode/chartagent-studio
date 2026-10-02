@@ -184,6 +184,16 @@ class PlanOut(BindOut):
     """BindOut's keys plus the plan's own wall time (Studio ADR-0001 D2).
     BindOut itself does not gain this field."""
 
+    kind: Literal["frame"] = "frame"
+    plan_elapsed_ms: int
+
+
+class RecipePlanOut(BaseModel):
+    """A custom-rail plan: the recipe and the plan's wall time, nothing
+    bound — no rows, backend or diagnostics (#48)."""
+
+    kind: Literal["recipe"] = "recipe"
+    recipe: dict[str, Any]
     plan_elapsed_ms: int
 
 
@@ -1099,8 +1109,9 @@ def plan_spec(
     request: Request,
     session: Annotated[AuthSession, Depends(get_session)],
     db: Annotated[OrmSession, Depends(get_db)],
-) -> PlanOut:
-    """A draft: the library planner once, nothing written (Studio ADR-0001)."""
+) -> PlanOut | RecipePlanOut:
+    """A draft: the library planner once, nothing written (Studio ADR-0001).
+    A custom-rail answer comes back as its recipe, unbound (#48)."""
     source = _owned_source(db, payload.source_id, session.owner_id)
     settings = _settings(request)
     store = _store(request)
@@ -1140,7 +1151,15 @@ def plan_spec(
                 error_code = error_code_for(wrapped)
                 raise wrapped from exc
             wall_ms = round((time.perf_counter() - started) * 1000)
+        if result.recipe is not None:
+            plan_elapsed_ms = max(0, wall_ms)
+            outcome = "ok"
+            return RecipePlanOut(
+                recipe=json.loads(result.recipe.canonical_json()),
+                plan_elapsed_ms=plan_elapsed_ms,
+            )
         envelope = result.envelope
+        assert envelope is not None
         bind_ms = round(envelope.elapsed * 1000)
         plan_elapsed_ms = max(0, wall_ms - bind_ms)
         backend = str(envelope.backend)
