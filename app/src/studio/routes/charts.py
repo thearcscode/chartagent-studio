@@ -52,6 +52,7 @@ from chartagent import (
     InputFrame,
     bind,
     bind_recipe,
+    build_shell,
     canonical_json,
     flint_bundle,
 )
@@ -195,6 +196,11 @@ class CacheOut(BaseModel):
     row_count: int
     elapsed_ms: int
     bound_at: datetime
+
+
+class ShellOut(BaseModel):
+    html: str
+    sandbox: list[str]
 
 
 class SpecOut(BaseModel):
@@ -929,6 +935,30 @@ def read_cache(
         # cache layer serve last bind's bytes as this bind's.
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.get("/specs/{chart_id}/shell")
+def read_shell(
+    chart_id: uuid.UUID,
+    session: Annotated[AuthSession, Depends(get_session)],
+    db: Annotated[OrmSession, Depends(get_db)],
+) -> ShellOut:
+    """The custom rail's shell for the chart's current revision (#41): the
+    library's `build_shell` with no libraries, its sandbox tokens exactly as
+    returned. Rows-free and theme-free — the browser sends both over the
+    channel. A pure read: no bind, no run row. Sync `def`: `build_shell`
+    hashes and assembles synchronously."""
+    chart = _owned_chart(db, chart_id, session.owner_id)
+    revision = _current_revision(db, chart)
+    if revision.kind != "recipe":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Chart is not a custom chart",
+        )
+    recipe = ChartRecipe.from_dict(revision.content)
+    ensure_supported(recipe)
+    shell = build_shell(recipe.document, libraries={})
+    return ShellOut(html=shell.html, sandbox=list(shell.sandbox))
 
 
 @router.get("/specs/{chart_id}/revisions")

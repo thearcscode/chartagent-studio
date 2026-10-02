@@ -28,6 +28,7 @@ import { BackendPicker } from "../components/BackendPicker";
 import { DriftPanel } from "../components/DriftPanel";
 import { RevisionDiff } from "../components/RevisionDiff";
 import { RevisionList } from "../components/RevisionList";
+import { RecipeChartPage } from "./RecipeChartPage";
 import { referencedNames, baselineBuckets, type DriftedField } from "../lib/drift";
 import {
   ApiError,
@@ -165,6 +166,11 @@ export function ChartPage() {
 
   const [theme, setThemeState] = useState<Theme>(() => getStoredTheme(localStorage));
   const [spec, setSpec] = useState<SpecOut | null>(null);
+  // A saved chart whose current revision is a recipe opens on the custom
+  // rail (#41) — tagged with its id so a navigation reads as loading.
+  const [customOpen, setCustomOpen] = useState<
+    { chartId: string; spec: SpecOut } | { chartId: string; unsupported: string } | null
+  >(null);
   const [editorText, setEditorText] = useState("");
   const [title, setTitle] = useState("");
   const [sources, setSources] = useState<SourceOut[]>([]);
@@ -618,6 +624,10 @@ export function ChartPage() {
         // fetch made Strict Mode's remount skip the retry, so a saved
         // chart URL rendered as a blank new chart.
         openedRef.current = chartId;
+        if (loaded.kind === "recipe") {
+          setCustomOpen({ chartId, spec: loaded });
+          return;
+        }
         setSpec(loaded);
         setTitle(loaded.title);
         updateEditorText(JSON.stringify(loaded.content, null, 2));
@@ -626,12 +636,16 @@ export function ChartPage() {
         void runBind("open", backend, loaded);
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          setArea({
-            kind: "error",
-            reason: error instanceof Error ? error.message : String(error),
-          });
+        if (cancelled) return;
+        if (error instanceof ApiError && error.body.error === "pinned_libraries_unsupported") {
+          openedRef.current = chartId;
+          setCustomOpen({ chartId, unsupported: error.message });
+          return;
         }
+        setArea({
+          kind: "error",
+          reason: error instanceof Error ? error.message : String(error),
+        });
       });
     return () => {
       cancelled = true;
@@ -779,6 +793,17 @@ export function ChartPage() {
   }
 
   const working = area.kind === "working";
+
+  if (chartId !== undefined && customOpen?.chartId === chartId) {
+    return "spec" in customOpen ? (
+      <RecipeChartPage spec={customOpen.spec} />
+    ) : (
+      <div className="app-shell">
+        <p role="alert">{customOpen.unsupported}</p>
+        <Link to="/">Back to the Library</Link>
+      </div>
+    );
+  }
   // One "a bind is in flight" flag for every control that would start one.
   const busy = working || refreshing || reverting;
 

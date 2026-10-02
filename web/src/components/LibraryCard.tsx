@@ -27,6 +27,7 @@ import {
   envelopeFromCache,
   formatBoundAt,
   pointerState,
+  UNBOUND_COPY,
 } from "../lib/library";
 import { drawChart, type DrawCleanup } from "../lib/renderers";
 
@@ -46,13 +47,51 @@ type CacheRead =
   | Unbound
   | { kind: "ready"; revisionId: string; rows: Array<Record<string, unknown>> };
 
-const UNBOUND_COPY = {
-  none: "Never bound.",
-  stale:
-    "The cache predates this revision or its source — a new chart with old rows is a wrong chart.",
-  missing: "The cached object is gone.",
-  mismatch: "The cached object names another revision — a wrong chart, not an early one.",
-} as const;
+/** A saved custom-rail chart's card (#41): a recipe is not a Flint frame, so
+ * nothing is compiled here — the card links to the chart, which paints from
+ * the cache in its sandboxed mount. Loading the card reads and binds nothing.
+ */
+export function RecipeCard({ card }: { card: SpecOut }) {
+  const state = pointerState(card);
+  const pointer = state.kind === "fresh" ? state.pointer : null;
+  return (
+    <article className="library-card" data-state={pointer === null ? "unbound" : "custom"}>
+      <header className="card-header">
+        <h2 className="card-title">
+          <Link to={`/charts/${card.id}`} className="card-title-link">
+            {card.title}
+          </Link>
+        </h2>
+        <span className="revision-chip">rev {card.revision_number}</span>
+      </header>
+      <div className="card-chart-area">
+        <div className="area-note">
+          <p>Custom chart.</p>
+          {pointer === null ? (
+            <p>
+              {UNBOUND_COPY[state.kind === "fresh" ? "none" : state.kind]}{" "}
+              <Link to={`/charts/${card.id}`} className="ghost-button">
+                Refresh to bind
+              </Link>
+            </p>
+          ) : (
+            <p>
+              <Link to={`/charts/${card.id}`} className="ghost-button">
+                Open
+              </Link>
+            </p>
+          )}
+        </div>
+      </div>
+      {pointer !== null ? (
+        <p className="cost-line">
+          {pointer.row_count} rows · {pointer.elapsed_ms} ms
+          {pointer.source_kind === "url" ? ` · as of ${formatBoundAt(pointer.bound_at)}` : ""}
+        </p>
+      ) : null}
+    </article>
+  );
+}
 
 export function LibraryCard({
   card,

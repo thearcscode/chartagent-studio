@@ -166,6 +166,18 @@ export async function getSpec(getToken: GetToken, chartId: string): Promise<Spec
   return (await request(getToken, "GET", `/api/specs/${chartId}`)) as SpecOut;
 }
 
+/** The custom rail's shell for a saved chart's current revision (#41): html
+ * and sandbox tokens exactly as the library returned them. Rows-free and
+ * theme-free — both travel over the paint channel. */
+export interface ChartShell {
+  html: string;
+  sandbox: string[];
+}
+
+export async function fetchShell(getToken: GetToken, chartId: string): Promise<ChartShell> {
+  return (await request(getToken, "GET", `/api/specs/${chartId}/shell`)) as ChartShell;
+}
+
 /** The Library's list: every card carries its frame and its cache pointer,
  * so the page compiles from the cache and never binds behind a page load. */
 export async function listSpecs(getToken: GetToken): Promise<SpecOut[]> {
