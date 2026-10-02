@@ -225,7 +225,7 @@ def test_diff_refuses_when_either_side_is_a_recipe(
         headers=bearer_headers(signing),
     )
     assert response.status_code == 422
-    assert response.json()["error"] == "recipe_diff_unsupported"
+    assert response.json()["error"] == "recipe_operation_unsupported"
 
 
 def test_remap_preview_refuses_a_recipe_current_revision(
@@ -239,7 +239,7 @@ def test_remap_preview_refuses_a_recipe_current_revision(
         headers=bearer_headers(signing),
     )
     assert response.status_code == 422
-    assert response.json()["error"] == "recipe_diff_unsupported"
+    assert response.json()["error"] == "recipe_operation_unsupported"
 
 
 def test_a_bind_block_cannot_ride_on_a_recipe(
@@ -275,3 +275,17 @@ def test_cross_owner_and_signed_out_are_refused(
     assert db_client.post(
         "/api/specs", json={"content": RECIPE, "source_id": source_id}
     ).status_code == 401
+
+
+def test_a_saved_bind_on_a_recipe_is_refused_not_fed_to_the_frame_bind(
+    db_client: TestClient, signing: SigningKeys
+) -> None:
+    source_id = _upload_source(db_client, signing)
+    chart_id = _create(db_client, signing, source_id, RECIPE).json()["id"]
+    response = db_client.post(
+        f"/api/specs/{chart_id}/bind",
+        json={"backend": "echarts"},
+        headers=bearer_headers(signing),
+    )
+    assert response.status_code == 422
+    assert response.json()["error"] == "recipe_operation_unsupported"

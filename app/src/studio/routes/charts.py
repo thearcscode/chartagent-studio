@@ -69,7 +69,7 @@ from studio.errors import (
 from studio.ids import new_id
 from studio.models import BindCache, Chart, DataSource, Run, SpecRevision
 from studio.observe import log_bind, log_plan
-from studio.recipes import RecipeDiffUnsupportedError, ensure_supported, is_recipe
+from studio.recipes import RecipeOperationUnsupportedError, ensure_supported, is_recipe
 from studio.remap import RemapRefusedError, apply_mapping, validate_mapping
 from studio.storage import ObjectStore, drop
 
@@ -865,7 +865,7 @@ def diff_revisions(
     left = _owned_revision(db, chart, from_rev)
     right = _owned_revision(db, chart, to_rev)
     if "recipe" in (left.kind, right.kind):
-        raise RecipeDiffUnsupportedError
+        raise RecipeOperationUnsupportedError
     hunks, source_schema_only = diff_documents(left.content, right.content)
     return DiffOut(
         from_revision=from_rev,
@@ -888,7 +888,7 @@ def remap_preview(
     chart = _owned_chart(db, chart_id, session.owner_id)
     revision = _current_revision(db, chart)
     if revision.kind == "recipe":
-        raise RecipeDiffUnsupportedError
+        raise RecipeOperationUnsupportedError
     drifted = [field.model_dump() for field in payload.drifted]
     try:
         validate_mapping(drifted, payload.mapping)
@@ -1060,6 +1060,8 @@ def saved_bind(
     way, and replaces the cache on success (ADR-0007 D6/D8)."""
     chart = _owned_chart(db, chart_id, session.owner_id)
     revision = _current_revision(db, chart)
+    if revision.kind == "recipe":
+        raise RecipeOperationUnsupportedError  # recipe bind is a later ticket
     source_id = payload.source_id or chart.default_source_id
     if source_id is None:
         raise HTTPException(

@@ -21,7 +21,7 @@ from studio.errors import (
     unmapped_error_handler,
 )
 from studio.observe import RequestContextMiddleware, configure_logging
-from studio.recipes import PinnedLibrariesError, RecipeDiffUnsupportedError
+from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
 from studio.routes import charts, excel, fixtures, flint, health, session, sources
 from studio.storage import LocalObjectStore
 
@@ -81,7 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(ChartAgentError, chartagent_error_handler)
     app.add_exception_handler(RowCapExceededError, mapped_error_handler)
     app.add_exception_handler(PinnedLibrariesError, mapped_error_handler)
-    app.add_exception_handler(RecipeDiffUnsupportedError, mapped_error_handler)
+    app.add_exception_handler(RecipeOperationUnsupportedError, mapped_error_handler)
     app.add_exception_handler(ModelVendorError, mapped_error_handler)
     app.add_exception_handler(PlanBusyError, mapped_error_handler)
     app.add_exception_handler(Exception, unmapped_error_handler)

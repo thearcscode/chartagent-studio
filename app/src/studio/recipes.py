@@ -26,13 +26,13 @@ class PinnedLibrariesError(Exception):
         self.libraries = libraries
 
 
-class RecipeDiffUnsupportedError(Exception):
-    """A two-revision diff or remap over a recipe: a one-line JSON diff is
-    not the review surface (ADR-0018 D9), and the text diff is later work."""
+class RecipeOperationUnsupportedError(Exception):
+    """A diff, remap or bind over a recipe: a one-line JSON diff is not the
+    review surface (ADR-0018 D9), and the recipe bind is a later ticket."""
 
     def __init__(self) -> None:
         super().__init__(
-            "Comparing revisions of a custom chart isn't supported yet"
+            "This isn't supported for custom charts yet"
         )
 
 
