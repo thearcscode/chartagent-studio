@@ -224,6 +224,11 @@ jobs:
       - name: Install Chromium
         working-directory: studio/web
         run: npx playwright install --with-deps chromium
+      # The server boots a BrowserRasteriser (#55) through the app's own
+      # Python Playwright, which wants its own Chromium revision.
+      - name: Install the app's Chromium
+        working-directory: studio/app
+        run: uv run playwright install chromium
       - name: Playwright smoke
         working-directory: studio/web
         run: npm run test:e2e
