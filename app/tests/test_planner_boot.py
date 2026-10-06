@@ -12,10 +12,15 @@ from pathlib import Path
 import pytest
 from chartagent import ChartAgent
 from chartagent.errors import ModelClientUnavailableError
+from fastapi import FastAPI
 
 from studio.config import Settings, StudioConfigurationError
 from studio.main import create_app
-from tests.conftest import SigningKeys, make_app
+from tests.conftest import (
+    SigningKeys,
+    fake_rasteriser_builder,
+    make_app,
+)
 
 
 def _settings(
@@ -31,6 +36,12 @@ def _settings(
     )
 
 
+def _boot(**kwargs: str) -> FastAPI:
+    return create_app(
+        _settings(**kwargs), rasteriser_builder=fake_rasteriser_builder
+    )
+
+
 def test_settings_default_planner_model_is_the_library_string() -> None:
     default = Settings.model_fields["planner_model"].default
     assert default == "anthropic:claude-sonnet-4-6"
@@ -41,7 +52,7 @@ def test_create_app_raises_when_the_planner_key_is_absent(
 ) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(StudioConfigurationError, match="PLANNER_MODEL"):
-        create_app(_settings())
+        _boot()
 
 
 def test_create_app_checks_the_key_named_by_the_model_prefix(
@@ -50,14 +61,14 @@ def test_create_app_checks_the_key_named_by_the_model_prefix(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-dummy-key")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(StudioConfigurationError, match="PLANNER_MODEL"):
-        create_app(_settings(planner_model="openai:gpt-4o"))
+        _boot(planner_model="openai:gpt-4o")
 
 
 def test_create_app_builds_one_chart_agent_when_the_key_is_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-dummy-key")
-    app = create_app(_settings())
+    app = _boot()
     assert isinstance(app.state.chart_agent, ChartAgent)
 
 
@@ -66,7 +77,7 @@ def test_create_app_raises_the_library_error_when_the_extra_is_absent(
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-dummy-key")
     with pytest.raises(ModelClientUnavailableError):
-        create_app(_settings(planner_model="openai:gpt-4o"))
+        _boot(planner_model="openai:gpt-4o")
 
 
 def test_make_app_supplies_a_dummy_provider_key(
@@ -98,13 +109,10 @@ def test_create_app_passes_the_critique_model_to_the_chart_agent(
         return object()
 
     monkeypatch.setattr("studio.main.create_chart_agent", fake_create_chart_agent)
-    create_app(_settings(critique_model="anthropic:claude-opus-5"))
-    assert calls == [
-        {
-            "model": "anthropic:claude-sonnet-4-6",
-            "critique_model": "anthropic:claude-opus-5",
-        }
-    ]
+    _boot(critique_model="anthropic:claude-opus-5")
+    assert len(calls) == 1
+    assert calls[0]["model"] == "anthropic:claude-sonnet-4-6"
+    assert calls[0]["critique_model"] == "anthropic:claude-opus-5"
 
 
 def test_missing_critique_key_names_the_setting_and_the_variable(
@@ -113,7 +121,7 @@ def test_missing_critique_key_names_the_setting_and_the_variable(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-dummy-key")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(StudioConfigurationError) as excinfo:
-        create_app(_settings(critique_model="openai:gpt-4o"))
+        _boot(critique_model="openai:gpt-4o")
     assert "CRITIQUE_MODEL" in str(excinfo.value)
     assert "OPENAI_API_KEY" in str(excinfo.value)
 
@@ -122,5 +130,5 @@ def test_one_anthropic_key_serves_both_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-dummy-key")
-    app = create_app(_settings())
+    app = _boot()
     assert isinstance(app.state.chart_agent, ChartAgent)
