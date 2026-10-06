@@ -13,7 +13,7 @@ before implementing anything.
 | --- | --- |
 | Tickets | GitHub issues on **this repo**. The instruction box shipped as #17 / #18–#20. **GitHub is the only tracker — Linear is not used for this project, even if a Linear integration is configured; do not spend a step authenticating it.** Fetch with `gh issue view <n>`. |
 | Vocabulary | `CONTEXT.md` in the library repo — read it first. |
-| Architecture decisions | `docs/adr/` in this repo for Studio (Studio ADR-0001, ADR-0002). Library ADRs stay in `../chartagent/docs/adr/`: ADR-0006 (stack, request flow, pinning, refusals), ADR-0007 (five tables, bind cache, runs), ADR-0005 (the library surface this app consumes), ADR-0020 (planner surface). |
+| Architecture decisions | `docs/adr/` in this repo for Studio (Studio ADR-0001, ADR-0002, ADR-0003). Library ADRs stay in `../chartagent/docs/adr/`: ADR-0006 (stack, request flow, pinning, refusals), ADR-0007 (five tables, bind cache, runs), ADR-0005 (the library surface this app consumes), ADR-0020 (planner surface). |
 | Design system | `design/tokens.css` in the library repo is **canonical**; `design/README.md` carries the reasoning (two colour systems, type scale, rail hues are load-bearing). |
 | The library itself | Local checkout at `../chartagent` (sibling of this repo). |
 
@@ -38,7 +38,7 @@ before implementing anything.
 - Sync `def` for any route that calls `bind`; `async def` for pure I/O.
 - Dark theme by default; the toggle persists in `localStorage` only.
 - Node is a build-time tool. The runtime image is `python:3.12-slim` plus
-  built static assets.
+  built static assets and the app's Chromium (Studio ADR-0003).
 
 ## Checks (must all pass)
 

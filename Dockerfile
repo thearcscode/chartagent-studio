@@ -44,7 +44,8 @@ RUN /srv/studio/app/.venv/bin/python -c \
 # and the running container agree on where it lives; --with-deps pulls the
 # system libraries Chromium needs into the slim base.
 ENV PLAYWRIGHT_BROWSERS_PATH=/srv/studio/browsers
-RUN /srv/studio/app/.venv/bin/playwright install --with-deps chromium
+RUN /srv/studio/app/.venv/bin/playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=web /build/dist ./web/dist
 ENV WEB_DIST_DIR=/srv/studio/web/dist
