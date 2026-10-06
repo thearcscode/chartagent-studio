@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     jwt_leeway_seconds: float = 30.0
 
     web_dist_dir: Path = _REPO_ROOT / "web" / "dist"
+    # The library's pinned renderer runtimes for the review rasteriser. Defaults
+    # to the sibling checkout (dev and CI); never derived from the installed
+    # package, which ships none of these bytes.
+    renderer_vendor_dir: Path = (
+        _REPO_ROOT.parent / "chartagent" / "tools" / "paint" / "vendor"
+    )
 
     # Managed Postgres in deploys; the compose db service in dev (ADR-0007 D1).
     database_url: str = "postgresql+psycopg://studio:studio@localhost:5432/studio"

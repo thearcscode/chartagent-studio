@@ -88,6 +88,20 @@ class FakeUrlDescriber:
         }
 
 
+class FakeRasteriser:
+    """Stands in for BrowserRasteriser: no browser, no Flint run."""
+
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+def fake_rasteriser_builder(_: Settings) -> Any:
+    return FakeRasteriser()
+
+
 @pytest.fixture(scope="session")
 def signing() -> SigningKeys:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -152,7 +166,7 @@ def make_app(
         key_name = provider_api_key_name(model)
         if not os.environ.get(key_name):
             os.environ[key_name] = "test-dummy-key"
-    app = create_app(settings)
+    app = create_app(settings, rasteriser_builder=fake_rasteriser_builder)
     app.state.jwks_client = FakeJwksClient(jwks)
     return app
 

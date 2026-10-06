@@ -64,6 +64,7 @@ Environment:
 | `PLAN_CONCURRENCY` | app | concurrent plans, default 2 — overflow is 503 |
 | `PLANNER_MODEL` | app | pydantic-ai model string, default `anthropic:claude-sonnet-4-6` |
 | `CRITIQUE_MODEL` | app | independent critic, pydantic-ai model string, default `anthropic:claude-sonnet-5`; never falls back to `PLANNER_MODEL` |
+| `RENDERER_VENDOR_DIR` | app | the library's pinned renderer runtimes for the review rasteriser; defaults to the sibling checkout's `tools/paint/vendor`. A missing directory or sha mismatch fails boot |
 | `ANTHROPIC_API_KEY` | app | required at boot when `PLANNER_MODEL` or `CRITIQUE_MODEL` is an Anthropic model; the provider prefix of each model names its variable (`OPENAI_API_KEY` for an OpenAI model) |
 | `STUDIO_TEST_DATABASE_URL` | tests | a disposable database the test session creates, migrates and truncates |
 

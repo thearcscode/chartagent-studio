@@ -20,7 +20,7 @@ before implementing anything.
 ## Hard rules (from the ADRs; violations fail review)
 
 - The library dependency's *version constraint and source* never change
-  (`chartagent[anthropic]>=0.1` in `app/pyproject.toml`). Dev uses the
+  (`chartagent[anthropic,review]>=0.1` in `app/pyproject.toml`). Dev uses the
   editable path source; CI/deploy resolve the pinned git SHA
   (`LIBRARY_GIT_SHA` in `.github/workflows/ci.yml`) via a sibling checkout.
   Asking the library for one of its own extras is not a change to the pin.

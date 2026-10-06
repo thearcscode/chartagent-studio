@@ -1,4 +1,6 @@
 import threading
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 
 from chartagent import create_chart_agent
 from chartagent.errors import ChartAgentError
@@ -21,6 +23,7 @@ from studio.errors import (
     unmapped_error_handler,
 )
 from studio.observe import RequestContextMiddleware, configure_logging
+from studio.rasteriser import ThreadConfinedRasteriser, build_rasteriser
 from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
 from studio.routes import charts, excel, fixtures, flint, health, session, sources
 from studio.storage import LocalObjectStore
@@ -48,7 +51,13 @@ def _looks_like_file(path: str) -> bool:
     return "." in path.rsplit("/", 1)[-1]
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    rasteriser_builder: Callable[
+        [Settings], ThreadConfinedRasteriser
+    ] = build_rasteriser,
+) -> FastAPI:
     if settings is None:
         # Reads CLERK_JWKS_URL from the environment; pydantic-settings fields
         # are env-populated, which mypy cannot see.
@@ -57,8 +66,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     require_model_api_key("PLANNER_MODEL", settings.planner_model)
     require_model_api_key("CRITIQUE_MODEL", settings.critique_model)
 
+    # Built before the agent so a bad vendor directory fails the boot first.
+    # One per app; the lifespan closes it once at shutdown.
+    rasteriser = rasteriser_builder(settings)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            rasteriser.close()
+
     # SPA-private routes: no API keys, no OpenAPI promise, no versioned paths.
     app = FastAPI(
+        lifespan=lifespan,
         title="Chartagent Studio",
         docs_url=None,
         redoc_url=None,
@@ -72,7 +93,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.object_store = LocalObjectStore(settings.object_store_dir)
     app.state.source_describer = DuckDbDescriber()
     app.state.chart_agent = create_chart_agent(
-        model=settings.planner_model, critique_model=settings.critique_model
+        model=settings.planner_model,
+        critique_model=settings.critique_model,
+        rasteriser=rasteriser,
     )
     app.state.plan_semaphore = threading.Semaphore(settings.plan_concurrency)
 

@@ -41,6 +41,7 @@ RUN /srv/studio/app/.venv/bin/python -c \
 
 COPY --from=web /build/dist ./web/dist
 ENV WEB_DIST_DIR=/srv/studio/web/dist
+ENV RENDERER_VENDOR_DIR=/srv/chartagent/tools/paint/vendor
 
 EXPOSE 8000
 # Migrate, then serve: the five tables must exist before the first request.
