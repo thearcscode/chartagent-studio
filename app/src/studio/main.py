@@ -9,7 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from studio.config import Settings, require_planner_api_key
+from studio.config import Settings, require_model_api_key
 from studio.db import build_session_factory
 from studio.describe import DuckDbDescriber
 from studio.errors import (
@@ -54,7 +54,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # are env-populated, which mypy cannot see.
         settings = Settings()  # type: ignore[call-arg]
 
-    require_planner_api_key(settings.planner_model)
+    require_model_api_key("PLANNER_MODEL", settings.planner_model)
+    require_model_api_key("CRITIQUE_MODEL", settings.critique_model)
 
     # SPA-private routes: no API keys, no OpenAPI promise, no versioned paths.
     app = FastAPI(
@@ -70,7 +71,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = build_session_factory(settings.database_url)
     app.state.object_store = LocalObjectStore(settings.object_store_dir)
     app.state.source_describer = DuckDbDescriber()
-    app.state.chart_agent = create_chart_agent(model=settings.planner_model)
+    app.state.chart_agent = create_chart_agent(
+        model=settings.planner_model, critique_model=settings.critique_model
+    )
     app.state.plan_semaphore = threading.Semaphore(settings.plan_concurrency)
 
     configure_logging()
