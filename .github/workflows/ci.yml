@@ -150,7 +150,7 @@ jobs:
 
   playwright:
     # The one browser test that proves the architecture (ADR-0006 D15).
-    # The heavy image is CI-only — the runtime image never contains Playwright.
+    # The e2e image is CI-only; the runtime image carries only the app's Chromium for the review rasteriser (Studio ADR-0003).
     runs-on: ubuntu-latest
     services:
       postgres:
