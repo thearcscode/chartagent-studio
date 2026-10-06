@@ -39,8 +39,17 @@ RUN cd app && uv sync --no-dev --no-editable
 RUN /srv/studio/app/.venv/bin/python -c \
     "import duckdb; duckdb.connect(':memory:').execute('INSTALL httpfs')"
 
+# Chromium for the review rasteriser is installed at build time, not on the
+# first request, for the same reason. The browser path is pinned so the build
+# and the running container agree on where it lives; --with-deps pulls the
+# system libraries Chromium needs into the slim base.
+ENV PLAYWRIGHT_BROWSERS_PATH=/srv/studio/browsers
+RUN /srv/studio/app/.venv/bin/playwright install --with-deps chromium
+
 COPY --from=web /build/dist ./web/dist
 ENV WEB_DIST_DIR=/srv/studio/web/dist
+# Set here, not derived from the installed package: --no-editable installs ship
+# none of the vendored renderer bytes. Boot fails if the sha does not match.
 ENV RENDERER_VENDOR_DIR=/srv/chartagent/tools/paint/vendor
 
 EXPOSE 8000
