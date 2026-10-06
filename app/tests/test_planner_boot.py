@@ -18,11 +18,16 @@ from studio.main import create_app
 from tests.conftest import SigningKeys, make_app
 
 
-def _settings(*, planner_model: str = "anthropic:claude-sonnet-4-6") -> Settings:
+def _settings(
+    *,
+    planner_model: str = "anthropic:claude-sonnet-4-6",
+    critique_model: str = "anthropic:claude-sonnet-5",
+) -> Settings:
     return Settings(
         clerk_jwks_url="https://clerk.test/.well-known/jwks.json",
         web_dist_dir=Path("/definitely/not/a/dist"),
         planner_model=planner_model,
+        critique_model=critique_model,
     )
 
 
@@ -69,4 +74,53 @@ def test_make_app_supplies_a_dummy_provider_key(
 ) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     app = make_app(signing.jwks)
+    assert isinstance(app.state.chart_agent, ChartAgent)
+
+
+def test_settings_default_critique_model() -> None:
+    default = Settings.model_fields["critique_model"].default
+    assert default == "anthropic:claude-sonnet-5"
+
+
+def test_changing_only_the_planner_model_leaves_the_critic_default() -> None:
+    settings = _settings(planner_model="openai:gpt-4o")
+    assert settings.critique_model == "anthropic:claude-sonnet-5"
+
+
+def test_create_app_passes_the_critique_model_to_the_chart_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-dummy-key")
+    calls: list[dict[str, object]] = []
+
+    def fake_create_chart_agent(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr("studio.main.create_chart_agent", fake_create_chart_agent)
+    create_app(_settings(critique_model="anthropic:claude-opus-5"))
+    assert calls == [
+        {
+            "model": "anthropic:claude-sonnet-4-6",
+            "critique_model": "anthropic:claude-opus-5",
+        }
+    ]
+
+
+def test_missing_critique_key_names_the_setting_and_the_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-dummy-key")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(StudioConfigurationError) as excinfo:
+        create_app(_settings(critique_model="openai:gpt-4o"))
+    assert "CRITIQUE_MODEL" in str(excinfo.value)
+    assert "OPENAI_API_KEY" in str(excinfo.value)
+
+
+def test_one_anthropic_key_serves_both_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-dummy-key")
+    app = create_app(_settings())
     assert isinstance(app.state.chart_agent, ChartAgent)

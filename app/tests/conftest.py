@@ -148,9 +148,10 @@ def make_app(
         web_dist_dir=web_dist_dir or Path("/definitely/not/a/dist"),
         **overrides,
     )
-    key_name = provider_api_key_name(settings.planner_model)
-    if not os.environ.get(key_name):
-        os.environ[key_name] = "test-dummy-key"
+    for model in (settings.planner_model, settings.critique_model):
+        key_name = provider_api_key_name(model)
+        if not os.environ.get(key_name):
+            os.environ[key_name] = "test-dummy-key"
     app = create_app(settings)
     app.state.jwks_client = FakeJwksClient(jwks)
     return app

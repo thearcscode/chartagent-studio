@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Vendor API keys are not Settings fields — the name is derived from
-# PLANNER_MODEL's prefix. Load `.env` into the process so a key written
+# the model setting's prefix. Load `.env` into the process so a key written
 # next to CLERK_JWKS_URL is visible to both the boot check and the provider.
 load_dotenv()
 
@@ -21,12 +21,16 @@ def provider_api_key_name(model: str) -> str:
     return f"{model.split(':', 1)[0].upper()}_API_KEY"
 
 
-def require_planner_api_key(model: str) -> None:
-    """Raise before the agent is built, so a missing key is Studio's fault."""
+def require_model_api_key(setting: str, model: str) -> None:
+    """Raise before the agent is built, so a missing key is Studio's fault.
+
+    ``setting`` is the env name of the model setting (``PLANNER_MODEL``,
+    ``CRITIQUE_MODEL``) so the error names the one the operator must fix.
+    """
     env_name = provider_api_key_name(model)
     if not os.environ.get(env_name):
         raise StudioConfigurationError(
-            f"PLANNER_MODEL={model!r} requires the {env_name} environment variable"
+            f"{setting}={model!r} requires the {env_name} environment variable"
         )
 
 
@@ -69,3 +73,6 @@ class Settings(BaseSettings):
     # pydantic-ai model string; the provider prefix names the API-key env var
     # (Studio ADR-0002). Bare, matching bind_row_cap — no STUDIO_ prefix.
     planner_model: str = "anthropic:claude-sonnet-4-6"
+    # The independent critic (ADR-0026 D9). Never falls back to planner_model:
+    # changing one leaves the other at its own default.
+    critique_model: str = "anthropic:claude-sonnet-5"
