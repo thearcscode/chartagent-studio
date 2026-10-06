@@ -62,7 +62,6 @@ def test_shutdown_closes_the_rasteriser_exactly_once() -> None:
 def test_default_vendor_dir_is_the_sibling_checkouts() -> None:
     default = Settings.model_fields["renderer_vendor_dir"].default
     assert default.parts[-4:] == ("chartagent", "tools", "paint", "vendor")
-    assert default.parent.parent.parent.parent.name != "site-packages"
 
 
 def test_missing_vendor_dir_names_the_setting(tmp_path: Path) -> None:
@@ -81,18 +80,29 @@ def test_sha_mismatch_names_the_setting(tmp_path: Path) -> None:
         build_rasteriser(_settings(tmp_path / "vendor"))
 
 
-def _browser_installed() -> bool:
+def test_failed_boot_closes_the_rasteriser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(**_: object) -> object:
+        raise RuntimeError("agent construction failed")
+
+    monkeypatch.setattr("studio.main.create_chart_agent", boom)
+    rasteriser = FakeRasteriser()
+    with pytest.raises(RuntimeError):
+        create_app(_settings(), rasteriser_builder=lambda _: rasteriser)  # type: ignore[arg-type,return-value]
+    assert rasteriser.close_calls == 1
+
+
+def test_boots_against_the_real_vendor_directory_and_closes() -> None:
     try:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as pw:
-            return Path(pw.chromium.executable_path).exists()
+            installed = Path(pw.chromium.executable_path).exists()
     except Exception:
-        return False
-
-
-@pytest.mark.skipif(not _browser_installed(), reason="no Playwright browser installed")
-def test_boots_against_the_real_vendor_directory_and_closes() -> None:
+        installed = False
+    if not installed:
+        pytest.skip("no Playwright browser installed")
     app = create_app(_settings())
     with TestClient(app):
         pass

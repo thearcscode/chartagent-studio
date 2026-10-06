@@ -92,11 +92,16 @@ def create_app(
     app.state.session_factory = build_session_factory(settings.database_url)
     app.state.object_store = LocalObjectStore(settings.object_store_dir)
     app.state.source_describer = DuckDbDescriber()
-    app.state.chart_agent = create_chart_agent(
-        model=settings.planner_model,
-        critique_model=settings.critique_model,
-        rasteriser=rasteriser,
-    )
+    try:
+        app.state.chart_agent = create_chart_agent(
+            model=settings.planner_model,
+            critique_model=settings.critique_model,
+            rasteriser=rasteriser,
+        )
+    except BaseException:
+        # The lifespan never runs if boot fails; do not leak the browser.
+        rasteriser.close()
+        raise
     app.state.plan_semaphore = threading.Semaphore(settings.plan_concurrency)
 
     configure_logging()

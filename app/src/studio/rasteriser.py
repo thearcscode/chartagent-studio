@@ -19,6 +19,7 @@ class ThreadConfinedRasteriser:
     """
 
     def __init__(self, settings: Settings) -> None:
+        self._closed = False
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="rasteriser"
         )
@@ -38,6 +39,9 @@ class ThreadConfinedRasteriser:
         ).result()
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         try:
             self._executor.submit(self._inner.close).result()
         finally:
