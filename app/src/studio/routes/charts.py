@@ -729,7 +729,6 @@ def _save_common(content: dict[str, Any], block: BindBlock | None) -> _Artifact:
                 detail="A bind result cannot be saved with a custom chart",
             )
         recipe = ChartRecipe.from_dict(content)
-        ensure_supported(recipe)
         canonical = recipe.canonical_json()
         return _Artifact(
             kind="recipe",
