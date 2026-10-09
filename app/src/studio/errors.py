@@ -246,7 +246,9 @@ def error_code_for(exc: Exception) -> str:
     return type(exc).__name__
 
 
-async def chartagent_error_handler(request: Request, exc: Exception) -> JSONResponse:
+async def chartagent_error_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
     mapped = map_error(exc)
     if mapped is None:  # a ChartAgentError subclass we have no row for
         return await unmapped_error_handler(request, exc)

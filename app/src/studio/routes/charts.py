@@ -351,7 +351,9 @@ def _next_revision_number(db: OrmSession, chart: Chart) -> int:
     return (highest or 0) + 1
 
 
-def _owned_revision(db: OrmSession, chart: Chart, revision_number: int) -> SpecRevision:
+def _owned_revision(
+    db: OrmSession, chart: Chart, revision_number: int
+) -> SpecRevision:
     revision = db.scalars(
         select(SpecRevision).where(
             SpecRevision.chart_id == chart.id,
@@ -399,7 +401,9 @@ def _copy_source_schema(
     return result
 
 
-def _cache_honest(stored: dict[str, Any], block: BindBlock) -> bool:
+def _cache_honest(
+    stored: dict[str, Any], block: BindBlock
+) -> bool:
     """ADR-0007 D8 erratum: the cache is written only if the saved frame is
     byte-identical to the frame the bound result came from, or differs only
     by the `source_schema` copied from that same bind's envelope. Otherwise
@@ -431,7 +435,9 @@ def _write_cache(
     the same request as the save or bind (ADR-0007 D6). The object goes down
     first; a store failure is logged and skips the cache (and its `save`
     run), never fails the save or bind itself (ADR-0007 §4)."""
-    payload = json.dumps({"revision_id": str(revision.id), "rows": rows}).encode()
+    payload = json.dumps(
+        {"revision_id": str(revision.id), "rows": rows}
+    ).encode()
     cache_key = f"{chart.owner_id}/charts/{chart.id}/last_bind.json"
     try:
         store.replace(cache_key, io.BytesIO(payload))
@@ -647,7 +653,9 @@ def _do_bind_recipe(
     with _bind_data(store, source) as data:
         bound = bind_recipe(recipe, data, timeout=settings.bind_timeout_seconds)
     if bound.row_count > settings.bind_row_cap:
-        raise RowCapExceededError(row_count=bound.row_count, cap=settings.bind_row_cap)
+        raise RowCapExceededError(
+            row_count=bound.row_count, cap=settings.bind_row_cap
+        )
     warnings = [AdvisoryOut(code=w.code, message=w.message) for w in bound.warnings]
     rows = list(bound.rows)
     return _Bound(
@@ -947,8 +955,8 @@ def read_shell(
     (#64; never the registry), its sandbox tokens exactly as returned. A
     missing or corrupt blob fails this card alone. Rows-free and
     theme-free — the browser sends both over the channel. A pure read: no
-    bind, no run row. Sync `def`: `build_shell`
-    hashes and assembles synchronously."""
+    bind, no run row. Sync `def`: `build_shell` hashes and assembles
+    synchronously."""
     chart = _owned_chart(db, chart_id, session.owner_id)
     revision = _current_revision(db, chart)
     if revision.kind != "recipe":

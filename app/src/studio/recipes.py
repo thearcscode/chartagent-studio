@@ -16,7 +16,9 @@ class RecipeOperationUnsupportedError(Exception):
     surface (ADR-0018 D9)."""
 
     def __init__(self) -> None:
-        super().__init__("This isn't supported for custom charts yet")
+        super().__init__(
+            "This isn't supported for custom charts yet"
+        )
 
 
 def is_recipe(content: Mapping[str, Any]) -> bool:
