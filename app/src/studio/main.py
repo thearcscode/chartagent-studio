@@ -31,7 +31,7 @@ from studio.libraries import (
 )
 from studio.observe import RequestContextMiddleware, configure_logging
 from studio.rasteriser import ThreadConfinedRasteriser, build_rasteriser
-from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
+from studio.recipes import RecipeOperationUnsupportedError
 from studio.routes import charts, excel, fixtures, flint, health, session, sources
 from studio.storage import LocalObjectStore
 
@@ -126,7 +126,6 @@ def create_app(
     # carrying only the request id.
     app.add_exception_handler(ChartAgentError, chartagent_error_handler)
     app.add_exception_handler(RowCapExceededError, mapped_error_handler)
-    app.add_exception_handler(PinnedLibrariesError, mapped_error_handler)
     app.add_exception_handler(LibraryShellError, mapped_error_handler)
     app.add_exception_handler(RecipeOperationUnsupportedError, mapped_error_handler)
     app.add_exception_handler(ModelVendorError, mapped_error_handler)
