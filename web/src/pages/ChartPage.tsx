@@ -123,9 +123,9 @@ export function ChartPage() {
   const [spec, setSpec] = useState<SpecOut | null>(null);
   // A saved chart whose current revision is a recipe opens on the custom
   // rail (#41) — tagged with its id so a navigation reads as loading.
-  const [customOpen, setCustomOpen] = useState<
-    { chartId: string; spec: SpecOut } | { chartId: string; unsupported: string } | null
-  >(null);
+  const [customOpen, setCustomOpen] = useState<{ chartId: string; spec: SpecOut } | null>(
+    null,
+  );
   const [editorText, setEditorText] = useState("");
   const [title, setTitle] = useState("");
   const [sources, setSources] = useState<SourceOut[]>([]);
@@ -610,11 +610,6 @@ export function ChartPage() {
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        if (error instanceof ApiError && error.body.error === "pinned_libraries_unsupported") {
-          openedRef.current = chartId;
-          setCustomOpen({ chartId, unsupported: error.message });
-          return;
-        }
         setArea({
           kind: "error",
           reason: error instanceof Error ? error.message : String(error),
@@ -768,14 +763,7 @@ export function ChartPage() {
   const working = area.kind === "working";
 
   if (chartId !== undefined && customOpen?.chartId === chartId) {
-    return "spec" in customOpen ? (
-      <RecipeChartPage spec={customOpen.spec} />
-    ) : (
-      <div className="app-shell">
-        <p role="alert">{customOpen.unsupported}</p>
-        <Link to="/">Back to the Library</Link>
-      </div>
-    );
+    return <RecipeChartPage spec={customOpen.spec} />;
   }
   // One "a bind is in flight" flag for every control that would start one.
   const busy = working || refreshing || reverting;

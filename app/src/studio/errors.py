@@ -31,7 +31,7 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
 from studio.libraries import LibraryResolveError, LibraryShellError
-from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
+from studio.recipes import RecipeOperationUnsupportedError
 
 logger = logging.getLogger("studio")
 
@@ -135,12 +135,6 @@ def _row_cap(exc: RowCapExceededError) -> tuple[int, dict[str, Any]]:
     )
 
 
-def _pinned_libraries(exc: PinnedLibrariesError) -> tuple[int, dict[str, Any]]:
-    return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
-        str(exc), "pinned_libraries_unsupported", libraries=exc.libraries
-    )
-
-
 def _library_shell(exc: LibraryShellError) -> tuple[int, dict[str, Any]]:
     """A card's shell could not be assembled (#64). A missing blob and a
     blob that no longer hashes to its pin are told apart; every other kind
@@ -226,7 +220,6 @@ _MAPPERS: dict[type[Exception], Callable[[Any], tuple[int, dict[str, Any]]]] = {
     RawSqlRejectedError: _raw_sql_rejected,
     TransformError: _transform,
     RowCapExceededError: _row_cap,
-    PinnedLibrariesError: _pinned_libraries,
     LibraryShellError: _library_shell,
     RecipeOperationUnsupportedError: _recipe_diff,
     InexpressibleRequestError: _inexpressible,
