@@ -56,7 +56,7 @@ from chartagent import (
     canonical_json,
     flint_bundle,
 )
-from chartagent.errors import ChartAgentError
+from chartagent.errors import ChartAgentError, DocumentAssemblyError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
@@ -74,9 +74,10 @@ from studio.errors import (
     error_code_for,
 )
 from studio.ids import new_id
+from studio.libraries import LibraryShellError, load_library_bytes
 from studio.models import BindCache, Chart, DataSource, Run, SpecRevision
 from studio.observe import log_bind, log_plan
-from studio.recipes import RecipeOperationUnsupportedError, ensure_supported, is_recipe
+from studio.recipes import RecipeOperationUnsupportedError, is_recipe
 from studio.remap import RemapRefusedError, apply_mapping, validate_mapping
 from studio.storage import ObjectStore, drop
 
@@ -729,7 +730,6 @@ def _save_common(content: dict[str, Any], block: BindBlock | None) -> _Artifact:
                 detail="A bind result cannot be saved with a custom chart",
             )
         recipe = ChartRecipe.from_dict(content)
-        ensure_supported(recipe)
         canonical = recipe.canonical_json()
         return _Artifact(
             kind="recipe",
@@ -888,11 +888,7 @@ def get_spec(
     db: Annotated[OrmSession, Depends(get_db)],
 ) -> SpecOut:
     chart = _owned_chart(db, chart_id, session.owner_id)
-    out = _spec_out(db, chart)
-    if out.kind == "recipe":
-        # Open refuses what save refuses — one rule (#39).
-        ensure_supported(ChartRecipe.from_dict(out.content))
-    return out
+    return _spec_out(db, chart)
 
 
 @router.delete("/specs/{chart_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -950,14 +946,17 @@ def read_cache(
 @router.get("/specs/{chart_id}/shell")
 def read_shell(
     chart_id: uuid.UUID,
+    request: Request,
     session: Annotated[AuthSession, Depends(get_session)],
     db: Annotated[OrmSession, Depends(get_db)],
 ) -> ShellOut:
     """The custom rail's shell for the chart's current revision (#41): the
-    library's `build_shell` with no libraries, its sandbox tokens exactly as
-    returned. Rows-free and theme-free — the browser sends both over the
-    channel. A pure read: no bind, no run row. Sync `def`: `build_shell`
-    hashes and assembles synchronously."""
+    library's `build_shell` over each pin's bytes read from the blob store
+    (#64; never the registry), its sandbox tokens exactly as returned. A
+    missing or corrupt blob fails this card alone. Rows-free and
+    theme-free — the browser sends both over the channel. A pure read: no
+    bind, no run row. Sync `def`: `build_shell` hashes and assembles
+    synchronously."""
     chart = _owned_chart(db, chart_id, session.owner_id)
     revision = _current_revision(db, chart)
     if revision.kind != "recipe":
@@ -966,8 +965,13 @@ def read_shell(
             detail="Chart is not a custom chart",
         )
     recipe = ChartRecipe.from_dict(revision.content)
-    ensure_supported(recipe)
-    shell = build_shell(recipe.document, libraries={})
+    libraries = load_library_bytes(
+        request.app.state.library_blobs, recipe.document.libraries
+    )
+    try:
+        shell = build_shell(recipe.document, libraries=libraries)
+    except DocumentAssemblyError as exc:
+        raise LibraryShellError(str(exc), kind=exc.kind) from exc
     return ShellOut(html=shell.html, sandbox=list(shell.sandbox))
 
 
@@ -1223,7 +1227,6 @@ def saved_bind(
     recipe: ChartRecipe | None = None
     if revision.kind == "recipe":
         recipe = ChartRecipe.from_dict(revision.content)
-        ensure_supported(recipe)
         backend: Backend | None = None
     else:
         if payload.backend is None:

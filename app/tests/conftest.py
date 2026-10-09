@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
+import json
 import os
+import tarfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -17,6 +20,7 @@ from sqlalchemy.engine.url import make_url
 
 from studio.config import Settings, provider_api_key_name
 from studio.describe import DuckDbDescriber, SchemaSnapshot, SourceUnreadableError
+from studio.libraries import RegistryFetchError
 from studio.main import create_app
 
 TEST_KID = "studio-test-key"
@@ -102,6 +106,58 @@ def fake_rasteriser_builder(_: Settings) -> Any:
     return FakeRasteriser()
 
 
+class FakeRegistry:
+    """Stands in for registry.npmjs.org: a url -> bytes table that records
+    every URL it is asked for. Anything not published is a registry error,
+    like an unknown package or an outage."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+        self.requests: list[str] = []
+        self.down = False
+
+    def publish(
+        self,
+        name: str,
+        version: str,
+        entry_path: str,
+        entry: bytes,
+        *,
+        manifest: dict[str, Any] | None = None,
+        tarball_url: str | None = None,
+    ) -> bytes:
+        """Register `name@version`; returns the tarball bytes."""
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            for path, data in (
+                (f"package/{entry_path}", entry),
+                ("package/package.json", b"{}"),
+            ):
+                info = tarfile.TarInfo(path)
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+        tarball = buffer.getvalue()
+        url = tarball_url or f"https://registry.npmjs.org/{name}/-/{name}-{version}.tgz"
+        self.files[url] = tarball
+        document = manifest or {"name": name, "version": version, "unpkg": entry_path}
+        document = {**document, "dist": {"tarball": url}}
+        self.files[f"https://registry.npmjs.org/{name}/{version}"] = json.dumps(
+            document
+        ).encode()
+        return tarball
+
+    def __call__(self, url: str) -> bytes:
+        self.requests.append(url)
+        if self.down or url not in self.files:
+            raise RegistryFetchError(f"registry has nothing at {url}")
+        return self.files[url]
+
+
+@pytest.fixture()
+def registry() -> FakeRegistry:
+    return FakeRegistry()
+
+
 @pytest.fixture(scope="session")
 def signing() -> SigningKeys:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -143,6 +199,7 @@ def make_app(
     upload_max_bytes: int | None = None,
     bind_row_cap: int | None = None,
     plan_concurrency: int | None = None,
+    registry: FakeRegistry | None = None,
 ) -> FastAPI:
     overrides: dict[str, Any] = {}
     if database_url is not None:
@@ -166,7 +223,11 @@ def make_app(
         key_name = provider_api_key_name(model)
         if not os.environ.get(key_name):
             os.environ[key_name] = "test-dummy-key"
-    app = create_app(settings, rasteriser_builder=fake_rasteriser_builder)
+    app = create_app(
+        settings,
+        rasteriser_builder=fake_rasteriser_builder,
+        registry_fetch=registry if registry is not None else FakeRegistry(),
+    )
     app.state.jwks_client = FakeJwksClient(jwks)
     return app
 
@@ -264,12 +325,17 @@ def clean_db(db_url: str) -> None:
 
 @pytest.fixture()
 def db_app(
-    signing: SigningKeys, db_url: str, clean_db: None, tmp_path: Path
+    signing: SigningKeys,
+    db_url: str,
+    clean_db: None,
+    tmp_path: Path,
+    registry: FakeRegistry,
 ) -> FastAPI:
     app = make_app(
         signing.jwks,
         database_url=db_url,
         object_store_dir=tmp_path / "objects",
+        registry=registry,
     )
     app.state.source_describer = FakeUrlDescriber()
     return app

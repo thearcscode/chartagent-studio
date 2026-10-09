@@ -30,7 +30,8 @@ from chartagent.errors import (
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
-from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
+from studio.libraries import LibraryResolveError, LibraryShellError
+from studio.recipes import RecipeOperationUnsupportedError
 
 logger = logging.getLogger("studio")
 
@@ -134,10 +135,14 @@ def _row_cap(exc: RowCapExceededError) -> tuple[int, dict[str, Any]]:
     )
 
 
-def _pinned_libraries(exc: PinnedLibrariesError) -> tuple[int, dict[str, Any]]:
-    return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
-        str(exc), "pinned_libraries_unsupported", libraries=exc.libraries
+def _library_shell(exc: LibraryShellError) -> tuple[int, dict[str, Any]]:
+    """A card's shell could not be assembled (#64). A missing blob and a
+    blob that no longer hashes to its pin are told apart; every other kind
+    of `build_shell` refusal keeps the library's kind."""
+    code = {"pin_missing": "library_missing", "pin_mismatch": "library_corrupt"}.get(
+        exc.kind, "document_assembly"
     )
+    return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(str(exc), code, kind=exc.kind)
 
 
 def _recipe_diff(exc: RecipeOperationUnsupportedError) -> tuple[int, dict[str, Any]]:
@@ -146,9 +151,27 @@ def _recipe_diff(exc: RecipeOperationUnsupportedError) -> tuple[int, dict[str, A
     )
 
 
+def _library_failure(exc: BaseException) -> str | None:
+    """When the plan ended because a pinned library could not be resolved
+    (ADR-0030 D8), the library's own message names which one
+    ("could not resolve d3@7.9.0") and Studio's resolver says why."""
+    parent: BaseException = exc
+    while (cause := parent.__cause__) is not None:
+        if isinstance(cause, LibraryResolveError):
+            return f"{parent}: {cause}"
+        parent = cause
+    return None
+
+
 def _inexpressible(exc: InexpressibleRequestError) -> tuple[int, dict[str, Any]]:
+    failure = _library_failure(exc)
+    message = (
+        f"The chart needs a library that could not be loaded ({failure})"
+        if failure
+        else str(exc)
+    )
     return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
-        str(exc), "inexpressible_request", bucket=exc.bucket
+        message, "inexpressible_request", bucket=exc.bucket
     )
 
 
@@ -197,7 +220,7 @@ _MAPPERS: dict[type[Exception], Callable[[Any], tuple[int, dict[str, Any]]]] = {
     RawSqlRejectedError: _raw_sql_rejected,
     TransformError: _transform,
     RowCapExceededError: _row_cap,
-    PinnedLibrariesError: _pinned_libraries,
+    LibraryShellError: _library_shell,
     RecipeOperationUnsupportedError: _recipe_diff,
     InexpressibleRequestError: _inexpressible,
     UnanswerableInstructionError: _unanswerable,
