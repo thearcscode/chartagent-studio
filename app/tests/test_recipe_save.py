@@ -122,26 +122,44 @@ def test_invalid_recipe_is_422_and_stores_nothing(
     assert listing.json() == []
 
 
-def test_a_pinned_library_is_refused_at_save_and_stores_nothing(
+def test_a_pinned_recipe_saves_as_a_revision_holding_the_pin_only(
     db_client: TestClient, signing: SigningKeys
 ) -> None:
     source_id = _upload_source(db_client, signing)
     response = _create(db_client, signing, source_id, _pinned())
-    assert response.status_code == 422
+    assert response.status_code == 201
     body = response.json()
-    assert body["error"] == "pinned_libraries_unsupported"
-    assert body["libraries"] == ["d3"]
-    assert db_client.get("/api/specs", headers=bearer_headers(signing)).json() == []
+    canonical = ChartRecipe.from_dict(_pinned()).canonical_json()
+    assert body["kind"] == "recipe"
+    assert body["revision_number"] == 1
+    assert body["content_hash"] == hashlib.sha256(canonical.encode()).hexdigest()
+    assert body["content"] == json.loads(canonical)
+    assert body["content"]["document"]["libraries"] == [
+        {"name": "d3", "version": "7.9.0", "sha256": "0" * 64}
+    ]
+    listed = db_client.get("/api/specs", headers=bearer_headers(signing)).json()
+    assert [c["id"] for c in listed] == [body["id"]]
 
 
-def test_a_pinned_library_is_refused_on_update_and_the_chart_is_unchanged(
+def test_saving_the_same_pinned_recipe_twice_is_an_unchanged_save(
+    db_client: TestClient, signing: SigningKeys
+) -> None:
+    source_id = _upload_source(db_client, signing)
+    created = _create(db_client, signing, source_id, _pinned()).json()
+    resaved = _put(db_client, signing, created["id"], _pinned())
+    assert resaved.status_code == 200
+    assert resaved.json()["revision_number"] == 1
+    assert resaved.json()["revision_id"] == created["revision_id"]
+
+
+def test_a_chart_updates_from_scratch_to_pinned_as_a_new_revision(
     db_client: TestClient, signing: SigningKeys
 ) -> None:
     source_id = _upload_source(db_client, signing)
     created = _create(db_client, signing, source_id, RECIPE).json()
-    response = _put(db_client, signing, created["id"], _pinned())
-    assert response.status_code == 422
-    assert _get(db_client, signing, created["id"]).json()["revision_number"] == 1
+    updated = _put(db_client, signing, created["id"], _pinned())
+    assert updated.status_code == 200
+    assert updated.json()["revision_number"] == 2
 
 
 def test_open_refuses_a_stored_recipe_that_pins_a_library(

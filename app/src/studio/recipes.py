@@ -1,7 +1,7 @@
 """The custom rail's stored artifact (#39, ADR-0018 D7-D11).
 
 The library validates and hashes a recipe; this module only decides which
-rail a posted document is on and holds the one rule save and open share:
+rail a posted document is on and holds the one rule open, paint and refresh share (save no longer refuses, #63):
 a recipe that pins any library is refused (library-pin resolution is a later
 slice).
 """
