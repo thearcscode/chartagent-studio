@@ -7,14 +7,24 @@ chart agent; nothing here re-tests the library planner."""
 from __future__ import annotations
 
 import hashlib
+import io
+import json
+import tarfile
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from studio.libraries import (
+    CACHE_MAX_BYTES,
+    LibraryBlobStore,
+    LibraryResolveError,
+    make_resolver,
+)
 from tests.conftest import FakeRegistry, SigningKeys, bearer_headers
 from tests.test_charts import CSV_BYTES, _upload_source
 
@@ -243,3 +253,81 @@ def test_a_from_scratch_plan_makes_no_registry_or_store_calls(
     assert response.json()["recipe"]["document"]["libraries"] == []
     assert registry.requests == []
     assert not (tmp_path / "objects" / "libraries").exists()
+
+
+def _tgz(members: list[tuple[str, bytes]]) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for path, data in members:
+            info = tarfile.TarInfo(path)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+def _resolver_over(manifest: dict[str, Any], tarball: bytes = b"") -> Any:
+    files = {
+        f"{REGISTRY}/d3/7.9.0": json.dumps(manifest).encode(),
+        f"{REGISTRY}/d3/-/d3-7.9.0.tgz": tarball,
+    }
+    return make_resolver(files.__getitem__, _NoStore())  # type: ignore[arg-type]
+
+
+class _NoStore:
+    def put(self, sha256: str, data: bytes) -> None:
+        pass
+
+
+@pytest.mark.parametrize(
+    "dist",
+    [
+        {"tarball": 7},
+        {"tarball": "https://registry.npmjs.org:bad/x.tgz"},
+        {"tarball": None},
+    ],
+)
+def test_a_malformed_manifest_is_a_resolve_error_not_a_crash(
+    dist: dict[str, Any],
+) -> None:
+    resolve = _resolver_over({"unpkg": "d.js", "dist": dist})
+    with pytest.raises(LibraryResolveError):
+        resolve("d3", "7.9.0")
+
+
+def test_a_tarball_that_expands_past_the_scan_cap_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("studio.libraries.MAX_SCAN_BYTES", 64 * 1024)
+    tarball = _tgz(
+        [("package/pad.bin", b"\0" * (1024 * 1024)), ("package/d.js", b"ok")]
+    )
+    resolve = _resolver_over(
+        {"unpkg": "d.js", "dist": {"tarball": f"{REGISTRY}/d3/-/d3-7.9.0.tgz"}},
+        tarball,
+    )
+    with pytest.raises(LibraryResolveError):
+        resolve("d3", "7.9.0")
+
+
+def test_a_duplicate_member_is_refused() -> None:
+    tarball = _tgz([("package/d.js", b"one"), ("package/d.js", b"two")])
+    resolve = _resolver_over(
+        {"unpkg": "d.js", "dist": {"tarball": f"{REGISTRY}/d3/-/d3-7.9.0.tgz"}},
+        tarball,
+    )
+    with pytest.raises(LibraryResolveError):
+        resolve("d3", "7.9.0")
+
+
+def test_remembering_a_cached_key_twice_does_not_double_count(
+    tmp_path: Path,
+) -> None:
+    from studio.storage import LocalObjectStore
+
+    blobs = LibraryBlobStore(LocalObjectStore(tmp_path))
+    data = b"x" * (CACHE_MAX_BYTES // 2 + 1)
+    sha = hashlib.sha256(data).hexdigest()
+    blobs.put(sha, data)
+    blobs.get(sha)
+    blobs._remember(sha, data)
+    assert blobs._cache_bytes == len(data)

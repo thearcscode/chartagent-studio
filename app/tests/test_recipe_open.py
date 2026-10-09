@@ -278,3 +278,27 @@ def test_refreshing_a_pinned_recipe_with_a_missing_blob_repaints_distinctly(
         f"/api/specs/{chart_id}/cache", headers=bearer_headers(signing)
     )
     assert again.json()["rows"] == rows
+
+
+def test_refreshing_a_pinned_recipe_with_a_corrupt_blob_repaints_distinctly(
+    db_client: TestClient, signing: SigningKeys
+) -> None:
+    chart_id = _pinned_chart(db_client, signing, ("bad", "1.0.0", "window.BAD = 1;"))
+    sha256, _ = _library_bytes("window.BAD = 1;")
+    db_client.app.state.object_store.replace(  # type: ignore[attr-defined]
+        f"libraries/{sha256}.js", io.BytesIO(b"tampered")
+    )
+    assert _refresh(db_client, signing, chart_id).status_code == 200
+    cached = db_client.get(
+        f"/api/specs/{chart_id}/cache", headers=bearer_headers(signing)
+    )
+    assert cached.status_code == 200
+    rows = cached.json()["rows"]
+
+    failed = _shell(db_client, signing, chart_id)
+    assert failed.status_code == 422
+    assert failed.json()["error"] == "library_corrupt"
+    again = db_client.get(
+        f"/api/specs/{chart_id}/cache", headers=bearer_headers(signing)
+    )
+    assert again.json()["rows"] == rows

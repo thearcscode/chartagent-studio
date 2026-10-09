@@ -19,6 +19,7 @@ import tarfile
 import threading
 import urllib.error
 import urllib.request
+import zlib
 from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from typing import Any
@@ -35,6 +36,8 @@ REGISTRY_URL = f"https://{REGISTRY_HOST}"
 # file inside it, but not unboundedly so.
 MAX_ENTRY_BYTES = 10 * 1024 * 1024
 MAX_FETCH_BYTES = 64 * 1024 * 1024
+# Decompressed bytes a tarball may expand to while we look for the entry.
+MAX_SCAN_BYTES = 4 * MAX_ENTRY_BYTES
 FETCH_TIMEOUT_SECONDS = 20.0
 # The in-process blob cache (ADR-0007): a Library page of cards sharing a
 # pin reads it once. Plotly is ~5 MB, so this holds a handful.
@@ -131,6 +134,9 @@ class LibraryBlobStore:
         if len(data) > CACHE_MAX_BYTES:
             return
         with self._lock:
+            if sha256 in self._cache:
+                self._cache.move_to_end(sha256)
+                return
             self._cache[sha256] = data
             self._cache_bytes += len(data)
             while self._cache_bytes > CACHE_MAX_BYTES:
@@ -162,18 +168,30 @@ def _browser_entry(manifest: dict[str, Any]) -> str:
 
 def _extract(tarball: bytes, entry: str) -> bytes:
     wanted = f"package/{entry}"
+    found: bytes | None = None
     try:
-        with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as archive:
+        # Decompress at most MAX_SCAN_BYTES: a gzip bomb stops here.
+        inflater = zlib.decompressobj(wbits=31)
+        raw = inflater.decompress(tarball, MAX_SCAN_BYTES + 1)
+        if len(raw) > MAX_SCAN_BYTES:
+            raise LibraryResolveError("the package tarball is too large")
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
             for member in archive:
                 if member.isfile() and member.name == wanted:
+                    if found is not None:
+                        raise LibraryResolveError(
+                            f"the package lists {entry!r} more than once"
+                        )
                     if member.size > MAX_ENTRY_BYTES:
                         raise LibraryResolveError("the browser entry is too large")
                     handle = archive.extractfile(member)
                     if handle is not None:
-                        return handle.read()
-    except (tarfile.TarError, OSError, EOFError) as exc:
+                        found = handle.read()
+    except (tarfile.TarError, OSError, EOFError, zlib.error) as exc:
         raise LibraryResolveError("the package tarball is unreadable") from exc
-    raise LibraryResolveError(f"the package has no file {entry!r}")
+    if found is None:
+        raise LibraryResolveError(f"the package has no file {entry!r}")
+    return found
 
 
 def make_resolver(
@@ -193,9 +211,10 @@ def make_resolver(
                 raise TypeError("manifest is not an object")
             tarball_url = manifest["dist"]["tarball"]
             entry = _browser_entry(manifest)
-        except (ValueError, KeyError, TypeError) as exc:
+            tarball = _fetch(fetch, tarball_url)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise LibraryResolveError("the registry manifest is unreadable") from exc
-        data = _extract(_fetch(fetch, tarball_url), entry)
+        data = _extract(tarball, entry)
         sha256 = hashlib.sha256(data).hexdigest()
         blobs.put(sha256, data)
         return sha256, data
