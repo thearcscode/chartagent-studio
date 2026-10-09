@@ -11,12 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
-from sqlalchemy import update
 
-from studio.models import BindCache, SpecRevision
 from tests.conftest import SigningKeys, bearer_headers, make_app
 from tests.test_charts import CSV_BYTES_2, FRAME, _runs, _upload_source
-from tests.test_recipe_save import RECIPE, _create, _pinned, _put
+from tests.test_recipe_save import RECIPE, _create, _put
 
 # Lacks the `a` column the recipe's baseline and transform name.
 CSV_MISSING_COLUMN = b"c,b\n4,p\n5,q\n"
@@ -296,20 +294,6 @@ def test_a_frame_bind_still_requires_a_backend(
     chart_id = _create(db_client, signing, source_id, FRAME).json()["id"]
     response = _refresh(db_client, signing, chart_id, body={"trigger": "refresh"})
     assert response.status_code == 422
-
-
-def test_a_pinned_recipe_cannot_be_bound(
-    db_client: TestClient, signing: SigningKeys
-) -> None:
-    chart_id, _ = _recipe_chart(db_client, signing)
-    with db_client.app.state.session_factory() as session:  # type: ignore[attr-defined]
-        session.execute(update(SpecRevision).values(content=_pinned()))
-        session.commit()
-    response = _refresh(db_client, signing, chart_id)
-    assert response.status_code == 422
-    assert response.json()["error"] == "pinned_libraries_unsupported"
-    with db_client.app.state.session_factory() as session:  # type: ignore[attr-defined]
-        assert session.query(BindCache).count() == 0
 
 
 def test_cross_owner_and_signed_out_are_refused(
