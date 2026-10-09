@@ -2,8 +2,9 @@
 
 The library validates and hashes a recipe; this module only decides which
 rail a posted document is on and holds the rule that open, paint and refresh
-share: a recipe that pins any library is refused there (library-pin
-resolution is a later slice). Save no longer refuses (#63).
+the refresh path still shares: a recipe that pins any library is refused
+there until refresh assembles library bytes (#65). Save (#63), open and
+paint (#64) no longer refuse.
 """
 
 from __future__ import annotations
@@ -31,9 +32,7 @@ class RecipeOperationUnsupportedError(Exception):
     surface (ADR-0018 D9)."""
 
     def __init__(self) -> None:
-        super().__init__(
-            "This isn't supported for custom charts yet"
-        )
+        super().__init__("This isn't supported for custom charts yet")
 
 
 def is_recipe(content: Mapping[str, Any]) -> bool:

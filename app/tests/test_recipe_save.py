@@ -162,18 +162,23 @@ def test_a_chart_updates_from_scratch_to_pinned_as_a_new_revision(
     assert updated.json()["revision_number"] == 2
 
 
-def test_open_refuses_a_stored_recipe_that_pins_a_library(
+def test_open_returns_a_stored_pinned_recipe_with_theme_spec_unchanged(
     db_client: TestClient, signing: SigningKeys
 ) -> None:
     source_id = _upload_source(db_client, signing)
     chart_id = _create(db_client, signing, source_id, RECIPE).json()["id"]
-    # Save never lets one in; force one into the store to prove open checks too.
+    stored = _pinned()
+    stored["theme_spec"] = "midnight"
     with db_client.app.state.session_factory() as session:  # type: ignore[attr-defined]
-        session.execute(update(SpecRevision).values(content=_pinned()))
+        session.execute(update(SpecRevision).values(content=stored))
         session.commit()
     response = _get(db_client, signing, chart_id)
-    assert response.status_code == 422
-    assert response.json()["error"] == "pinned_libraries_unsupported"
+    assert response.status_code == 200
+    assert response.json()["content"]["theme_spec"] == "midnight"
+    assert (
+        response.json()["content"]["document"]["libraries"]
+        == (stored["document"]["libraries"])
+    )
 
 
 def test_a_chart_moves_frame_to_recipe_and_back_with_monotonic_numbers(
@@ -290,6 +295,9 @@ def test_cross_owner_and_signed_out_are_refused(
         ).status_code
         == 404
     )
-    assert db_client.post(
-        "/api/specs", json={"content": RECIPE, "source_id": source_id}
-    ).status_code == 401
+    assert (
+        db_client.post(
+            "/api/specs", json={"content": RECIPE, "source_id": source_id}
+        ).status_code
+        == 401
+    )

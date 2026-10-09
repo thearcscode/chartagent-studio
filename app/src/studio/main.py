@@ -24,6 +24,7 @@ from studio.errors import (
 )
 from studio.libraries import (
     LibraryBlobStore,
+    LibraryShellError,
     RegistryFetch,
     fetch_registry_url,
     make_resolver,
@@ -126,6 +127,7 @@ def create_app(
     app.add_exception_handler(ChartAgentError, chartagent_error_handler)
     app.add_exception_handler(RowCapExceededError, mapped_error_handler)
     app.add_exception_handler(PinnedLibrariesError, mapped_error_handler)
+    app.add_exception_handler(LibraryShellError, mapped_error_handler)
     app.add_exception_handler(RecipeOperationUnsupportedError, mapped_error_handler)
     app.add_exception_handler(ModelVendorError, mapped_error_handler)
     app.add_exception_handler(PlanBusyError, mapped_error_handler)
