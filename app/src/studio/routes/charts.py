@@ -77,7 +77,7 @@ from studio.ids import new_id
 from studio.libraries import LibraryShellError, load_library_bytes
 from studio.models import BindCache, Chart, DataSource, Run, SpecRevision
 from studio.observe import log_bind, log_plan
-from studio.recipes import RecipeOperationUnsupportedError, ensure_supported, is_recipe
+from studio.recipes import RecipeOperationUnsupportedError, is_recipe
 from studio.remap import RemapRefusedError, apply_mapping, validate_mapping
 from studio.storage import ObjectStore, drop
 
@@ -1219,7 +1219,6 @@ def saved_bind(
     recipe: ChartRecipe | None = None
     if revision.kind == "recipe":
         recipe = ChartRecipe.from_dict(revision.content)
-        ensure_supported(recipe)
         backend: Backend | None = None
     else:
         if payload.backend is None:

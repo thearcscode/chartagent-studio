@@ -14,10 +14,10 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlalchemy import update
 
-from studio.models import SpecRevision
+from studio.models import BindCache, SpecRevision
 from tests.conftest import FakeRegistry, SigningKeys, bearer_headers
 from tests.test_charts import FRAME, _runs, _upload_source
-from tests.test_recipe_refresh import _recipe_chart, _refresh
+from tests.test_recipe_refresh import _RaisingAgent, _recipe_chart, _refresh
 from tests.test_recipe_save import RECIPE, _create, _put
 
 
@@ -235,3 +235,46 @@ def test_shell_follows_the_current_revision_across_a_rail_change(
     other_frame["chart_spec"]["encodings"]["x"] = {"field": "a"}
     assert _put(db_client, signing, chart_id, other_frame).status_code == 200
     assert _shell(db_client, signing, chart_id).status_code == 422
+
+
+def test_a_pinned_recipe_refreshes_and_repaints_with_no_model_and_no_registry(
+    db_client: TestClient, signing: SigningKeys, registry: FakeRegistry
+) -> None:
+    db_client.app.state.chart_agent = _RaisingAgent()  # type: ignore[attr-defined]
+    registry.down = True
+    lib = "window.R = 'REFRESH-LIB';"
+    chart_id = _pinned_chart(db_client, signing, ("d3", "1.0.0", lib))
+
+    response = _refresh(db_client, signing, chart_id)
+    assert response.status_code == 200
+    assert response.json()["row_count"] == 1  # the one seeded row passes a > 1
+    html = _shell(db_client, signing, chart_id).json()["html"]
+    assert html.index(lib) < html.index("window.render")
+    assert registry.requests == []
+    runs = _runs(db_client, signing, chart_id)
+    assert [(r["backend"], r["status"]) for r in runs] == [(None, "ok")]
+
+
+def test_refreshing_a_pinned_recipe_with_a_missing_blob_repaints_distinctly(
+    db_client: TestClient, signing: SigningKeys
+) -> None:
+    chart_id = _pinned_chart(
+        db_client, signing, ("gone", "1.0.0", "window.GONE = 1;"), seed=False
+    )
+    assert _refresh(db_client, signing, chart_id).status_code == 200
+    with db_client.app.state.session_factory() as session:  # type: ignore[attr-defined]
+        assert session.query(BindCache).count() == 1
+    cached = db_client.get(
+        f"/api/specs/{chart_id}/cache", headers=bearer_headers(signing)
+    )
+    assert cached.status_code == 200
+    rows = cached.json()["rows"]
+
+    failed = _shell(db_client, signing, chart_id)
+    assert failed.status_code == 422
+    assert failed.json()["error"] == "library_missing"
+    # The failed repaint left the stored bind cache untouched.
+    again = db_client.get(
+        f"/api/specs/{chart_id}/cache", headers=bearer_headers(signing)
+    )
+    assert again.json()["rows"] == rows
