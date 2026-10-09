@@ -30,7 +30,7 @@ from chartagent.errors import (
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
-from studio.libraries import LibraryResolveError
+from studio.libraries import LibraryResolveError, LibraryShellError
 from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
 
 logger = logging.getLogger("studio")
@@ -141,6 +141,16 @@ def _pinned_libraries(exc: PinnedLibrariesError) -> tuple[int, dict[str, Any]]:
     )
 
 
+def _library_shell(exc: LibraryShellError) -> tuple[int, dict[str, Any]]:
+    """A card's shell could not be assembled (#64). A missing blob and a
+    blob that no longer hashes to its pin are told apart; every other kind
+    of `build_shell` refusal keeps the library's kind."""
+    code = {"pin_missing": "library_missing", "pin_mismatch": "library_corrupt"}.get(
+        exc.kind, "document_assembly"
+    )
+    return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(str(exc), code, kind=exc.kind)
+
+
 def _recipe_diff(exc: RecipeOperationUnsupportedError) -> tuple[int, dict[str, Any]]:
     return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
         str(exc), "recipe_operation_unsupported"
@@ -217,6 +227,7 @@ _MAPPERS: dict[type[Exception], Callable[[Any], tuple[int, dict[str, Any]]]] = {
     TransformError: _transform,
     RowCapExceededError: _row_cap,
     PinnedLibrariesError: _pinned_libraries,
+    LibraryShellError: _library_shell,
     RecipeOperationUnsupportedError: _recipe_diff,
     InexpressibleRequestError: _inexpressible,
     UnanswerableInstructionError: _unanswerable,
@@ -242,9 +253,7 @@ def error_code_for(exc: Exception) -> str:
     return type(exc).__name__
 
 
-async def chartagent_error_handler(
-    request: Request, exc: Exception
-) -> JSONResponse:
+async def chartagent_error_handler(request: Request, exc: Exception) -> JSONResponse:
     mapped = map_error(exc)
     if mapped is None:  # a ChartAgentError subclass we have no row for
         return await unmapped_error_handler(request, exc)

@@ -16,11 +16,15 @@ import io
 import json
 import re
 import tarfile
+import threading
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections import OrderedDict
+from collections.abc import Callable, Iterable
 from typing import Any
 from urllib.parse import quote, urlsplit
+
+from chartagent import LibraryPin
 
 from studio.storage import ObjectStore
 
@@ -32,6 +36,9 @@ REGISTRY_URL = f"https://{REGISTRY_HOST}"
 MAX_ENTRY_BYTES = 10 * 1024 * 1024
 MAX_FETCH_BYTES = 64 * 1024 * 1024
 FETCH_TIMEOUT_SECONDS = 20.0
+# The in-process blob cache (ADR-0007): a Library page of cards sharing a
+# pin reads it once. Plotly is ~5 MB, so this holds a handful.
+CACHE_MAX_BYTES = 64 * 1024 * 1024
 
 _NAME = re.compile(r"^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$")
 _VERSION = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$")
@@ -49,6 +56,16 @@ class RegistryFetchError(Exception):
 
 class LibraryResolveError(Exception):
     """A library could not be resolved; the message says why."""
+
+
+class LibraryShellError(Exception):
+    """One card's shell could not be assembled from its pinned bytes (#64).
+    Raised by Studio so the fixtures route's unmapped-5xx contract for a
+    bare `DocumentAssemblyError` stays as it was."""
+
+    def __init__(self, message: str, *, kind: str) -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -77,6 +94,9 @@ class LibraryBlobStore:
 
     def __init__(self, store: ObjectStore) -> None:
         self._store = store
+        self._cache: OrderedDict[str, bytes] = OrderedDict()
+        self._cache_bytes = 0
+        self._lock = threading.Lock()
 
     @staticmethod
     def _key(sha256: str) -> str:
@@ -91,8 +111,31 @@ class LibraryBlobStore:
             pass
 
     def get(self, sha256: str) -> bytes:
+        """The bytes for `sha256`, read from the store once per process.
+
+        Only bytes that hash to `sha256` are cached, so a corrupt object is
+        re-read (and re-reported) rather than remembered; a missing one
+        raises ``FileNotFoundError`` and caches nothing."""
+        with self._lock:
+            cached = self._cache.get(sha256)
+            if cached is not None:
+                self._cache.move_to_end(sha256)
+                return cached
         with self._store.open(self._key(sha256)) as handle:
-            return handle.read()
+            data = handle.read()
+        if hashlib.sha256(data).hexdigest() == sha256:
+            self._remember(sha256, data)
+        return data
+
+    def _remember(self, sha256: str, data: bytes) -> None:
+        if len(data) > CACHE_MAX_BYTES:
+            return
+        with self._lock:
+            self._cache[sha256] = data
+            self._cache_bytes += len(data)
+            while self._cache_bytes > CACHE_MAX_BYTES:
+                _, evicted = self._cache.popitem(last=False)
+                self._cache_bytes -= len(evicted)
 
 
 def _registry_url(url: str) -> str:
@@ -158,3 +201,19 @@ def make_resolver(
         return sha256, data
 
     return resolve
+
+
+def load_library_bytes(
+    blobs: LibraryBlobStore, pins: Iterable[LibraryPin]
+) -> dict[str, bytes]:
+    """The `libraries` mapping `build_shell` takes: each pin's bytes by
+    sha256, read from the blob store. A pin whose blob is gone is left out,
+    so `build_shell` reports it as ``pin_missing`` — one verifier, the
+    library's."""
+    found: dict[str, bytes] = {}
+    for pin in pins:
+        try:
+            found[pin.sha256] = blobs.get(pin.sha256)
+        except (FileNotFoundError, ValueError):
+            continue
+    return found
