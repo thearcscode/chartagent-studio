@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,7 +42,7 @@ def test_create_app_passes_the_rasteriser_to_create_chart_agent(
 
     def fake_create_chart_agent(**kwargs: object) -> object:
         calls.append(kwargs)
-        return object()
+        return SimpleNamespace()
 
     monkeypatch.setattr("studio.main.create_chart_agent", fake_create_chart_agent)
     rasteriser = FakeRasteriser()

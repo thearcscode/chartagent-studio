@@ -8,6 +8,7 @@ vendor extra is the library's own unavailable-client error.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from chartagent import ChartAgent
@@ -106,7 +107,7 @@ def test_create_app_passes_the_critique_model_to_the_chart_agent(
 
     def fake_create_chart_agent(**kwargs: object) -> object:
         calls.append(kwargs)
-        return object()
+        return SimpleNamespace()
 
     monkeypatch.setattr("studio.main.create_chart_agent", fake_create_chart_agent)
     _boot(critique_model="anthropic:claude-opus-5")
