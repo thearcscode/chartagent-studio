@@ -22,6 +22,12 @@ from studio.errors import (
     mapped_error_handler,
     unmapped_error_handler,
 )
+from studio.libraries import (
+    LibraryBlobStore,
+    RegistryFetch,
+    fetch_registry_url,
+    make_resolver,
+)
 from studio.observe import RequestContextMiddleware, configure_logging
 from studio.rasteriser import ThreadConfinedRasteriser, build_rasteriser
 from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
@@ -57,6 +63,7 @@ def create_app(
     rasteriser_builder: Callable[
         [Settings], ThreadConfinedRasteriser
     ] = build_rasteriser,
+    registry_fetch: RegistryFetch = fetch_registry_url,
 ) -> FastAPI:
     if settings is None:
         # Reads CLERK_JWKS_URL from the environment; pydantic-settings fields
@@ -102,6 +109,13 @@ def create_app(
         # The lifespan never runs if boot fails; do not leak the browser.
         rasteriser.close()
         raise
+    # Library pins are resolved at plan time only, through the one pinned
+    # registry, into a global content-addressed blob store (#67). Unset, the
+    # agent can only write from scratch.
+    app.state.library_blobs = LibraryBlobStore(app.state.object_store)
+    app.state.chart_agent._library_resolver = make_resolver(
+        registry_fetch, app.state.library_blobs
+    )
     app.state.plan_semaphore = threading.Semaphore(settings.plan_concurrency)
 
     configure_logging()

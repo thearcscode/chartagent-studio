@@ -30,6 +30,7 @@ from chartagent.errors import (
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
+from studio.libraries import LibraryResolveError
 from studio.recipes import PinnedLibrariesError, RecipeOperationUnsupportedError
 
 logger = logging.getLogger("studio")
@@ -146,9 +147,27 @@ def _recipe_diff(exc: RecipeOperationUnsupportedError) -> tuple[int, dict[str, A
     )
 
 
+def _library_failure(exc: BaseException) -> str | None:
+    """When the plan ended because a pinned library could not be resolved
+    (ADR-0030 D8), the library's own message names which one
+    ("could not resolve d3@7.9.0") and Studio's resolver says why."""
+    parent: BaseException = exc
+    while (cause := parent.__cause__) is not None:
+        if isinstance(cause, LibraryResolveError):
+            return f"{parent}: {cause}"
+        parent = cause
+    return None
+
+
 def _inexpressible(exc: InexpressibleRequestError) -> tuple[int, dict[str, Any]]:
+    failure = _library_failure(exc)
+    message = (
+        f"The chart needs a library that could not be loaded ({failure})"
+        if failure
+        else str(exc)
+    )
     return status.HTTP_422_UNPROCESSABLE_CONTENT, _body(
-        str(exc), "inexpressible_request", bucket=exc.bucket
+        message, "inexpressible_request", bucket=exc.bucket
     )
 
 
