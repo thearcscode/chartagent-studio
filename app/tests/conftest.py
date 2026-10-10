@@ -11,17 +11,16 @@ from typing import Any, NamedTuple
 
 import jwt
 import pytest
+from chartagent.rasterise import DocumentPaint
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
+from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
 
-from pydantic_ai.messages import ModelResponse, ToolCallPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
-
-from chartagent.rasterise import DocumentPaint
 from studio.config import Settings, provider_api_key_name
 from studio.describe import DuckDbDescriber, SchemaSnapshot, SourceUnreadableError
 from studio.libraries import RegistryFetchError

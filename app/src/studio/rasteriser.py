@@ -3,7 +3,11 @@ from typing import Literal
 
 from chartagent.envelope import Envelope
 from chartagent.errors import RasterisationError
-from chartagent.rasterise import BrowserRasteriser, DocumentPaint, load_vendored_renderers
+from chartagent.rasterise import (
+    BrowserRasteriser,
+    DocumentPaint,
+    load_vendored_renderers,
+)
 from chartagent.recipe import BoundDocument
 
 from studio.config import Settings, StudioConfigurationError
