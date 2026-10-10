@@ -11,10 +11,13 @@ from typing import Any, NamedTuple
 
 import jwt
 import pytest
+from chartagent.rasterise import DocumentPaint
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
+from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
 
@@ -92,14 +95,50 @@ class FakeUrlDescriber:
         }
 
 
+# One white pixel. The palette check passes (no hues to confuse) and the
+# empty declaration leaves data_truthfulness not_checked, so a recipe plan
+# is not sent into repair.
+_QUIET_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+    "0000000c49444154789c63f8ffff3f0005fe02fe0def46b80000000049454e44ae426082"
+)
+
+
 class FakeRasteriser:
-    """Stands in for BrowserRasteriser: no browser, no Flint run."""
+    """Stands in for BrowserRasteriser: no browser, no Flint run.
+
+    ``paint_document`` is the sibling the custom-rail review calls. Without
+    it a recipe plan raises, because the library now paints whenever a
+    rasteriser is configured.
+    """
 
     def __init__(self) -> None:
         self.close_calls = 0
 
+    def rasterise(self, target: object, *, format: str = "png") -> bytes:
+        return _QUIET_PNG
+
+    def paint_document(self, bound: object) -> DocumentPaint:
+        return DocumentPaint(png=_QUIET_PNG, declaration=[])
+
     def close(self) -> None:
         self.close_calls += 1
+
+
+def _install_passing_critic(agent: Any) -> None:
+    """The boot-time critic must not call a vendor during tests. A recipe
+    review runs it whenever a rasteriser is configured."""
+    client = agent._critique_client
+    if client is None:
+        return
+
+    def fn(_messages: object, info: AgentInfo) -> ModelResponse:
+        tool = info.output_tools[0]
+        props = tool.parameters_json_schema.get("properties", {})
+        args = {key: None if key == "note" else "pass" for key in props}
+        return ModelResponse(parts=[ToolCallPart(tool_name=tool.name, args=args)])
+
+    client._model = FunctionModel(fn)
 
 
 def fake_rasteriser_builder(_: Settings) -> Any:
@@ -228,6 +267,7 @@ def make_app(
         rasteriser_builder=fake_rasteriser_builder,
         registry_fetch=registry if registry is not None else FakeRegistry(),
     )
+    _install_passing_critic(app.state.chart_agent)
     app.state.jwks_client = FakeJwksClient(jwks)
     return app
 
