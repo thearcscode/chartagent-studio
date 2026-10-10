@@ -3,7 +3,7 @@ from typing import Literal
 
 from chartagent.envelope import Envelope
 from chartagent.errors import RasterisationError
-from chartagent.rasterise import BrowserRasteriser, load_vendored_renderers
+from chartagent.rasterise import BrowserRasteriser, DocumentPaint, load_vendored_renderers
 from chartagent.recipe import BoundDocument
 
 from studio.config import Settings, StudioConfigurationError
@@ -37,6 +37,11 @@ class ThreadConfinedRasteriser:
         return self._executor.submit(
             self._inner.rasterise, target, format=format
         ).result()
+
+    def paint_document(self, bound: BoundDocument) -> DocumentPaint:
+        """The sibling paint, on the browser thread. The review prefers this
+        over ``rasterise`` so the declaration is not dropped."""
+        return self._executor.submit(self._inner.paint_document, bound).result()
 
     def close(self) -> None:
         if self._closed:
